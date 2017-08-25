@@ -1,3 +1,4 @@
 .idea/
-input/**
-output/**
+input/VOCdevkit/
+output/log/
+output/pickle/
