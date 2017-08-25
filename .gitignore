@@ -2,3 +2,4 @@
 input/VOCdevkit/
 output/log/
 output/pickle/
+FRCNN/__pycache__/
