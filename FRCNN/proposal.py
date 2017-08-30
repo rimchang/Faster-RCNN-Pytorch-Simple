@@ -76,7 +76,7 @@ class ProposalLayer:
         mask[filter_indices] = False
         pos_score[mask] = 0.0
 
-        indices = np.argsort(pos_score.squeeze())[::-1] # ascent order
+        indices = np.argsort(pos_score.squeeze())[::-1] # descent order
 
 
         # print("indices len", indices.shape[0], indices)
