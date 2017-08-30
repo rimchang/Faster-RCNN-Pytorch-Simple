@@ -69,10 +69,11 @@ def frcnn_loss(scores, bbox_pred, labels, bbox_targets):
     labels = labels.long()
     bbox_targets = to_var(bbox_targets)
 
-    print([j.size() for j in [scores, bbox_pred, labels, bbox_targets]])
+    # print(bbox_targets)
 
-    cls_crit = nn.CrossEntropyLoss()
-    cls_loss = cls_crit(scores, labels)
+    cls_crit = nn.NLLLoss()
+    log_scores = torch.log(scores)
+    cls_loss = cls_crit(log_scores, labels)
 
     reg_crit = nn.SmoothL1Loss()
     reg_loss = reg_crit(bbox_pred, bbox_targets)

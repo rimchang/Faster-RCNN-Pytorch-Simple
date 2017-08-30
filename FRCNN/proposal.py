@@ -22,73 +22,81 @@ class ProposalLayer:
 
     def _get_bbox_deltas(self, rpn_bbox_pred):
 
-        print("rpn_bbox_pred", rpn_bbox_pred.size())
+        #print("rpn_bbox_pred", rpn_bbox_pred.size())
         bbox_deltas = rpn_bbox_pred.permute(0, 2, 3, 1).contiguous()  # (1, 36, 14, 14) => (1, 14, 14, 36)
         bbox_deltas = bbox_deltas.view((-1, 4))  # (1, 14, 14, 36) => (1764, 4)
-        print("bbox_deltas", bbox_deltas.size())
+        #print("bbox_deltas", bbox_deltas.size())
         return bbox_deltas
 
     def proposal(self, rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, im_info):
         """
         proposal operation in cpu
         """
-        print(rpn_bbox_pred.size(), rpn_cls_prob.size())
-        bbox_deltas = self._get_bbox_deltas(rpn_bbox_pred).data.numpy()
+        #print(rpn_bbox_pred.size(), rpn_cls_prob.size())
+        bbox_deltas = self._get_bbox_deltas(rpn_bbox_pred).data.cpu().numpy()
 
         # 1. Convert anchors into proposal via bbox transformation
-        print(all_anchors_boxes.shape, bbox_deltas.shape)
+        #print(all_anchors_boxes.shape, bbox_deltas.shape)
         proposals_boxes = bbox_transform_inv(all_anchors_boxes, bbox_deltas)  # (1764, 4) all proposal boxes
+
+        # only keep anchors inside the image
+
+        height, width = im_info[0:2]
+
+        """
+        _allowed_border = 0
+        inds_inside = np.where(
+            (all_anchors_boxes[:, 0] >= -_allowed_border) &
+            (all_anchors_boxes[:, 1] >= -_allowed_border) &
+            (all_anchors_boxes[:, 2] < width + _allowed_border) &  # width
+            (all_anchors_boxes[:, 3] < height + _allowed_border)  # height
+        )[0]
+        """
+
+
 
         # 2. clip proposal boxes to image
         proposals_boxes = clip_boxes(proposals_boxes, im_info[0:2])
 
         # 3. remove predicted boxes with either height or width < threshold
         # (NOTE: convert min_size to input image scale stored in im_info[3])
-        filter_indices = filter_boxes(proposals_boxes, self.args.min_size * im_info[3])
+        filter_indices = filter_boxes(proposals_boxes, self.args.min_size * max(im_info[3]))
 
         # 4. sort all (proposal, score) pairs by score from highest to lowest
-        pos_score = self._get_pos_score(rpn_cls_prob).data.numpy()
+        pos_score = self._get_pos_score(rpn_cls_prob).data.cpu().numpy()
 
-        # mask filter_indices False so other assign 0
+        """
+        mask = np.ones(proposals_boxes.shape[0], dtype=bool)  # np.ones_like(a,dtype=bool)
+        mask[inds_inside] = False
+        pos_score[mask] = 0.0
+        """
+
+        # mask filter_indices False so other index score assign 0
         mask = np.ones(proposals_boxes.shape[0], dtype=bool)  # np.ones_like(a,dtype=bool)
         mask[filter_indices] = False
         pos_score[mask] = 0.0
 
-        indices = np.argsort(pos_score.squeeze())
+        indices = np.argsort(pos_score.squeeze())[::-1] # descent order
 
+
+        # print("indices len", indices.shape[0], indices)
         # 5. take topn score proposal
         topn_indices = indices[:self.args.pre_nms_topn]
-        print(indices, filter_indices, len(indices), len(filter_indices))
+        #print(indices, filter_indices, len(indices), len(filter_indices))
+
 
         # 6. apply nms (e.g. threshold = 0.7)
         proposals_boxes_c = np.hstack((pos_score[topn_indices], proposals_boxes[topn_indices]))  # (1000, 5)
         keep = py_cpu_nms(proposals_boxes_c, self.args.nms_thresh)
 
+
         # 7. take after_nms_topn (e.g. 300)
         if self.args.post_nms_topn > 0:
             keep = keep[:self.args.post_nms_topn]
+
 
         # 8. return the top proposals (-> RoIs top)
         proposals_boxes = proposals_boxes[keep, :]
         scores = pos_score[keep]
 
         return proposals_boxes, scores
-
-if __name__ == '__main__':
-
-    import torch
-    from utils_.anchors import get_anchors, anchor
-    from utils_ import to_var
-
-    # torch.Size([1, 36, 62, 37]) torch.Size([1, 18, 62, 37])
-    # rpn_bbox_pred, rpn_cls_prob = rpn_classfier(rpn_feature)
-    rpn_bbox_pred = to_var(torch.randn((1, 36, 62, 37)))
-    rpn_cls_prob = to_var(torch.randn((1, 18, 62, 37)))
-
-    features = to_var(torch.randn((1, 512, 62, 37)))
-    all_anchors_boxes = get_anchors(features, anchor)
-
-    proplayer = ProposalLayer(rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, im_info=(600, 1000, 3, 10))
-    proposals, scores = proplayer.proposal()
-    print(len(proposals), len(scores))
-    print(proposals.astype("int"))

@@ -28,7 +28,7 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     assert inside_anchors_boxes.shape[0] > 0, '{0}x{1} -> {2}'.format(height, width, num_anchors)
 
 
-    print("anchors",inside_anchors_boxes[inside_anchors_boxes < 0])
+    #print("anchors",inside_anchors_boxes[inside_anchors_boxes < 0])
     # label: 1 is positive, 0 is negative, -1 is dont care
     labels = np.empty((len(inds_inside),), dtype=np.float32)
     labels.fill(-1)
@@ -36,7 +36,7 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     # overlaps between the anchors and the gt boxes
     # overlaps (ex, gt)
 
-    overlaps = bbox_overlaps(inside_anchors_boxes, gt_boxes_c[:,1:]).numpy()
+    overlaps = bbox_overlaps(inside_anchors_boxes, gt_boxes_c[:,1:]).cpu().numpy()
     argmax_overlaps = overlaps.argmax(axis=1)
     max_overlaps = overlaps[np.arange(len(inds_inside)), argmax_overlaps]
 
@@ -87,8 +87,6 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
 
 # faster-RCNN targets
 def frcnn_targets(prop_boxes, gt_boxes_c, args):
-    # prop_rois : np.ndarray (?, 4)
-    # gr_rois : np.ndarray (?, 5)
 
     gt_labels = gt_boxes_c[:, 0]
     gt_boxes = gt_boxes_c[:, 1:]
@@ -113,7 +111,7 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
         np.ascontiguousarray(all_boxes_c[:, 1:], dtype=np.float),
         np.ascontiguousarray(gt_boxes, dtype=np.float))
     # overlaps (iou, index of class)
-    overlaps = overlaps.numpy()
+    overlaps = overlaps.cpu().numpy()
 
     # print(gt_boxes_c)
     # print(overlaps)
@@ -154,7 +152,7 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
     # a = np.array([[j] for j in range(10)])
     # a[[0,0,0]]  : [[0],[0],[0]]
     # index array라서 index에 해당하는 array가 반복되어 복사된다.
-    print("frcnn_target")
+    #print("frcnn_target")
     delta_boxes = bbox_transform(roi_boxes_c[:, 1:], gt_boxes[gt_assignment[keep_inds], :])
 
     # _get_bbox_regression_labels
@@ -170,6 +168,12 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
         end = start + 4
         targets[index, start:end] = delta_boxes[index, :]
 
+    #np.set_printoptions(threshold=np.nan)
+    #print("box: {}, ws : {}, hs : {}".format(boxes, ws, hs))
+    #print(labels)
+    #print(indices)
+    #print("targets[targets !=0]",np.exp(targets[:fg_rois_per_this_image]))
+    #np.set_printoptions(threshold=100)
     return labels, roi_boxes_c[:,1:], targets
 
 

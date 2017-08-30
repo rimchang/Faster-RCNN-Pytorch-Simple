@@ -177,15 +177,16 @@ def bbox_transform_inv(boxes, deltas):
 def clip_boxes(boxes, im_shape):
     """
     Clip boxes to image boundaries.
+    im_shape : (H, W)
     """
 
     # x1 >= 0
     boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
     # y1 >= 0
     boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
-    # x2 < im_shape[1]
+    # x2 < im_shape[1](W)
     boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
-    # y2 < im_shape[0]
+    # y2 < im_shape[0](H)
     boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
     return boxes
 
@@ -194,8 +195,11 @@ def filter_boxes(boxes, min_size):
     """Remove all boxes with any side smaller than min_size."""
     ws = boxes[:, 2] - boxes[:, 0] + 1
     hs = boxes[:, 3] - boxes[:, 1] + 1
-    print("ws : {}, hs : {}".format(ws, hs))
+    #np.set_printoptions(threshold=np.nan)
+    #print("box: {}, ws : {}, hs : {}".format(boxes, ws, hs))
+    #np.set_printoptions(threshold=100)
     keep = np.where((ws >= min_size) & (hs >= min_size))[0]
+    #print('box_num : {}, filter_boxe : {}'.format(boxes.shape[0], keep.shape[0]))
     return keep
 
 def py_cpu_nms(proposals_boxes_c, thresh):
@@ -225,7 +229,7 @@ def py_cpu_nms(proposals_boxes_c, thresh):
         inter = w * h
         ovr = inter / (areas[i] + areas[order[1:]] - inter)
 
-        inds = np.where(ovr <= thresh)[0]
-        order = order[inds + 1]
+        inds = np.where(ovr <= thresh)[0] # keep 해야 하는 index들이다.
+        order = order[inds + 1] # inds가 0번째 인덱스를 제외하고 계산했으므로.. 원래 index랑 맞춰줄려면 1을 더해야함.
 
     return keep
