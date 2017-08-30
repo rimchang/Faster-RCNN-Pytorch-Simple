@@ -76,7 +76,7 @@ class ProposalLayer:
         mask[filter_indices] = False
         pos_score[mask] = 0.0
 
-        indices = np.argsort(pos_score.squeeze())[::-1] # descent order
+        indices = np.argsort(pos_score.squeeze())[::-1] # ascent order
 
 
         # print("indices len", indices.shape[0], indices)
@@ -85,6 +85,8 @@ class ProposalLayer:
         #print(indices, filter_indices, len(indices), len(filter_indices))
 
 
+        keep = topn_indices
+        """
         # 6. apply nms (e.g. threshold = 0.7)
         proposals_boxes_c = np.hstack((pos_score[topn_indices], proposals_boxes[topn_indices]))  # (1000, 5)
         keep = py_cpu_nms(proposals_boxes_c, self.args.nms_thresh)
@@ -93,7 +95,7 @@ class ProposalLayer:
         # 7. take after_nms_topn (e.g. 300)
         if self.args.post_nms_topn > 0:
             keep = keep[:self.args.post_nms_topn]
-
+        """
 
         # 8. return the top proposals (-> RoIs top)
         proposals_boxes = proposals_boxes[keep, :]
