@@ -66,7 +66,6 @@ def _unmap(data, count, inds, fill=0):
     return ret
 
 
-import numpy as np
 
 
 def bbox_transform(boxes, gt_boxes):
@@ -116,16 +115,18 @@ def bbox_transform(boxes, gt_boxes):
 
 
 def bbox_transform_inv(boxes, deltas):
-    # boxes is achor or pred_box
+    # boxes is anchor or pred_box
     # if image is (224 * 224) then boxes are (1764, 4)
     # deltas are also (1764, 4)
+
+    #print(boxes.shape, deltas.shape)
 
     if boxes.shape[0] == 0:
         return np.zeros((0, deltas.shape[1]), dtype=deltas.dtype)
 
     boxes = boxes.astype(deltas.dtype, copy=False)
 
-    # (5, )
+
     widths = boxes[:, 2] - boxes[:, 0] + 1.0
     heights = boxes[:, 3] - boxes[:, 1] + 1.0
     ctr_x = boxes[:, 0] + 0.5 * widths
@@ -141,6 +142,7 @@ def bbox_transform_inv(boxes, deltas):
     dy = deltas[:, col_1]
     dw = deltas[:, col_2]
     dh = deltas[:, col_3]
+
 
     # x : predicted box, x_a : anchor box, x* : ground truth box
 
@@ -233,3 +235,4 @@ def py_cpu_nms(proposals_boxes_c, thresh):
         order = order[inds + 1] # inds가 0번째 인덱스를 제외하고 계산했으므로.. 원래 index랑 맞춰줄려면 1을 더해야함.
 
     return keep
+

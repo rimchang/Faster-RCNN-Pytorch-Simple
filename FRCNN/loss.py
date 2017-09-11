@@ -50,8 +50,8 @@ def rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets):
     # verify normalization and sigma
     reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets)
 
-    loss = cls_loss + reg_loss
-    return loss
+
+    return cls_loss, reg_loss
 
 
 def frcnn_loss(scores, bbox_pred, labels, bbox_targets):
@@ -75,9 +75,11 @@ def frcnn_loss(scores, bbox_pred, labels, bbox_targets):
     log_scores = torch.log(scores)
     cls_loss = cls_crit(log_scores, labels)
 
+    # print(log_scores.size(), labels.size())
+
     reg_crit = nn.SmoothL1Loss()
     reg_loss = reg_crit(bbox_pred, bbox_targets)
+    # print(log_scores.size(), labels.size(), bbox_pred.size(), bbox_targets.size())
 
-    loss = cls_loss + reg_loss
-    return loss
+    return cls_loss, reg_loss
 

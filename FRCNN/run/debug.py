@@ -1,13 +1,11 @@
-import torch
 from torchvision import transforms
 
-from data import VOCDetection, detection_collate, AnnotationTransform
-from utils_.utils import to_var
-from utils_.anchors import get_anchors, anchor
+from data.voc_data import VOCDetection, detection_collate, AnnotationTransform
+from loss import rpn_loss, frcnn_loss
 from model import *
 from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
-from loss import rpn_loss, frcnn_loss
+from utils_.anchors import get_anchors, anchor
 
 def debug(args):
 

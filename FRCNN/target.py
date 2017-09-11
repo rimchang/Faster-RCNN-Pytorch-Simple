@@ -40,6 +40,10 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     argmax_overlaps = overlaps.argmax(axis=1)
     max_overlaps = overlaps[np.arange(len(inds_inside)), argmax_overlaps]
 
+    #np.set_printoptions(threshold=np.nan)
+    #print(overlaps)
+    #np.set_printoptions(threshold=100)
+
     gt_argmax_overlaps = overlaps.argmax(axis=0)
     gt_max_overlaps = overlaps[gt_argmax_overlaps,
                                np.arange(overlaps.shape[1])]
@@ -54,6 +58,7 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     # fg label: above threshold IOU
     labels[max_overlaps >= args.pos_threshold] = 1
 
+    # print(labels[np.where(labels == 1)[0]])
     # subsample positive labels if we have too many
     num_fg = int(0.5 * 256)
     fg_inds = np.where(labels == 1)[0]
@@ -74,14 +79,17 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     # bbox_targets = _compute_targets(anchors, gt_boxes_c[argmax_overlaps, :])
     # transfrom delta bbox
 
+    #print(argmax_overlaps)
     bbox_targets = bbox_transform(inside_anchors_boxes, gt_boxes_c[argmax_overlaps, 1:])
 
     # map up to original set of anchors
-    # inds_inside 는 data로 채우고 나머지는 fill함.
+    # inds_inside 는 data로 채우고 나머지는 fill함. 즉 backround인 box의 target을 채워준다.
     labels = _unmap(labels, num_anchors, inds_inside, fill=-1)
     bbox_targets = _unmap(bbox_targets, num_anchors, inds_inside, fill=0)
 
-    return labels, bbox_targets
+    log = [len(fg_inds)]
+
+    return labels, bbox_targets, log
 
 
 
@@ -168,12 +176,16 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
         end = start + 4
         targets[index, start:end] = delta_boxes[index, :]
 
+
+
     #np.set_printoptions(threshold=np.nan)
     #print("box: {}, ws : {}, hs : {}".format(boxes, ws, hs))
     #print(labels)
     #print(indices)
     #print("targets[targets !=0]",np.exp(targets[:fg_rois_per_this_image]))
     #np.set_printoptions(threshold=100)
-    return labels, roi_boxes_c[:,1:], targets
+    log = [fg_rois_per_this_image, bg_rois_per_this_image]
+
+    return labels, roi_boxes_c[:,1:], targets ,log
 
 

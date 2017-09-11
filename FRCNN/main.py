@@ -1,16 +1,20 @@
 import argparse
 
 from run.train import train
-from run.debug import debug
+from run.make_val_boxes import make_val_boxes
+from run.eval import eval
 
 
 def main(args):
-    #print(args)
-    #print(dir(args))
-    if args.test == False:
+
+    if args.train:
         train(args)
-    else:
-        debug(args)
+
+    if args.make_val_boxes:
+        make_val_boxes(args)
+
+    if args.test:
+        eval(args)
 
 
 def str2bool(v):
@@ -28,9 +32,9 @@ if __name__ == '__main__':
     proposal_layer = parser.add_argument_group('proposal_layer')
     proposal_layer.add_argument('--min_size', type=int, default=10,
                         help='minimum proposal region size')
-    proposal_layer.add_argument('--pre_nms_topn', type=float, default=3000,
+    proposal_layer.add_argument('--pre_nms_topn', type=float, default=12000,
                         help='proposal region topn filter before nms')
-    proposal_layer.add_argument('--post_nms_topn', type=float, default=300,
+    proposal_layer.add_argument('--post_nms_topn', type=float, default=2000,
                         help='proposal region topn filter after nms')
     proposal_layer.add_argument('--nms_thresh', type=float, default=0.7,
                         help='IOU nms thresholds')
@@ -48,7 +52,7 @@ if __name__ == '__main__':
                         help='foreground fraction')
     frcnn_targets.add_argument('--fg_threshold', type=float, default=0.5,
                         help='foreground object thresholds')
-    frcnn_targets.add_argument('--bg_threshold', type=tuple, default=(0, 0.5),
+    frcnn_targets.add_argument('--bg_threshold', type=tuple, default=(0.1, 0.5),
                         help='background object thresholds')
 
 
@@ -69,9 +73,10 @@ if __name__ == '__main__':
                         help='object visualization threshold')
     training.add_argument('--num_printobj', type=int, default=10,
                         help='object print number')
-
+    training.add_argument('--init_gaussian', type=str2bool, default=True,
+                        help='initialize weight with gaussian N(0,0.01)')
     # Model Parmeters
-    parser.add_argument('--n_epochs', type=float, default=10,
+    parser.add_argument('--n_epochs', type=float, default=7,
                         help='max epochs')
 
 
@@ -86,6 +91,8 @@ if __name__ == '__main__':
                         help='input path')
     parser.add_argument('--pickle_dir', type=str, default='/pickle',
                         help='input path')
+    parser.add_argument('--result_dir', type=str, default='/result',
+                        help='input path')
     parser.add_argument('--log_dir', type=str, default='/log',
                         help='for tensorboard log path save in output_dir + log_dir')
     parser.add_argument('--image_dir', type=str, default='/image',
@@ -93,22 +100,33 @@ if __name__ == '__main__':
 
 
     # step parameter
-    parser.add_argument('--pickle_step', type=int, default=9,
+    parser.add_argument('--pickle_step', type=int, default=7,
                         help='pickle save at pickle_step epoch')
     parser.add_argument('--log_step', type=int, default=1,
                         help='tensorboard log save at log_step epoch')
-    parser.add_argument('--image_save_step', type=int, default=1,
-                        help='output image save at image_save_step epoch')
+    parser.add_argument('--image_save_step', type=int, default=100,
+                        help='output image save at image_save_step iteration')
 
     # other parameters
-    parser.add_argument('--model_name', type=str, default="V2",
+    parser.add_argument('--model_name', type=str, default="4096",
                         help='this model name for save pickle, logs, output image path and if model_name contain V2 modelV2 excute')
     parser.add_argument('--use_tensorboard', type=str2bool, default=True,
                         help='using tensorboard logging')
-    parser.add_argument('--test_iter', type=int, default=10,
-                        help='test_epoch number')
-    parser.add_argument('--test', type=str2bool, default=False,
-                        help='for test')
+
+    parser.add_argument('--train', type=str2bool, default=True,
+                        help='train')
+    parser.add_argument('--val', type=str2bool, default=True,
+                        help='val loss compute ?')
+    parser.add_argument('--make_val_boxes', type=str2bool, default=True,
+                        help='make_val_boxes')
+    parser.add_argument('--test', type=str2bool, default=True,
+                        help='test')
+    parser.add_argument('--test_max_per_image', type=int, default=10,
+                        help='max per image for test time')
+    parser.add_argument('--test_ob_thresh', type=int, default=0.05,
+                        help='class threshhold for test')
+    parser.add_argument('--test_nms', type=int, default=0.5,
+                        help='nms threshhold for test')
 
 
     args = parser.parse_args()

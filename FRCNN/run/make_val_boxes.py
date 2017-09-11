@@ -1,15 +1,15 @@
 from collections import OrderedDict
 from time import perf_counter as pc
-
-import matplotlib
 import torch.optim as optim
 from torchvision import transforms
-
+import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+import pickle
 
-from data.voc_data import VOCDetection, detection_collate, AnnotationTransform
+from data.voc_data import VOCDetection, detection_collate, AnnotationTransform, VOC_CLASSES
+from data.voc_eval import voc_eval
 from utils_.utils import make_name_string
 from utils_.anchors import get_anchors, anchor
 
@@ -17,10 +17,11 @@ from model import *
 from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
 from loss import rpn_loss, frcnn_loss
-from utils_.utils import img_get, obj_img_get, proposal_img_get, save_pickle, read_pickle
+from utils_.utils import img_get, obj_img_get, proposal_img_get, read_pickle
+from utils_.boxes_utils import py_cpu_nms, bbox_transform_inv, clip_boxes
 
 
-def train(args):
+def make_val_boxes(args):
 
     hyparam_list = [("model", args.model_name),
                     ("pos_th", args.pos_threshold),
@@ -37,27 +38,17 @@ def train(args):
     print(name_param)
 
 
-    # for using tensorboard
-    if args.use_tensorboard:
-        import tensorflow as tf
-
-        summary_writer = tf.summary.FileWriter(args.output_dir + args.log_dir + name_param)
-
-        def inject_summary(summary_writer, tag, value, step):
-                summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
-                summary_writer.add_summary(summary, global_step=step)
-
-        inject_summary = inject_summary
 
     transform = transforms.Compose([
         transforms.ToTensor(),
         #transforms.Normalize((0.485, 0.456, 0.406),
         #                     (0.229, 0.224, 0.225)),
     ])
-    trainset = VOCDetection(root=args.input_dir + "/VOCdevkit", image_set="train",
+    trainset = VOCDetection(root=args.input_dir + "/VOCdevkit", image_set="val",
                             transform=transform, target_transform=AnnotationTransform())
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=True,
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=False,
     num_workers = 1, collate_fn = detection_collate)
+
 
     # model define
     t0 = pc()
@@ -74,6 +65,7 @@ def train(args):
             self.proplayer = ProposalLayer(args=args)
             self.roipool = ROIpooling()
 
+
     model = Model()
 
     feature_extractor = model.feature_extractor
@@ -83,13 +75,6 @@ def train(args):
     roipool = model.roipool
 
     print("model loading time : {:.2f}".format(pc() - t0))
-
-
-    if args.init_gaussian:
-        for module in [rpn, fasterrcnn, roipool]:
-            for weight in module.parameters():
-                weight.data.normal_(0, 0.01)
-
 
     solver = optim.SGD([
                             {'params': feature_extractor.parameters(), 'lr': args.ft_lr},
@@ -103,18 +88,12 @@ def train(args):
     solver.param_groups[0]['epoch'] = 0
     solver.param_groups[0]['iter'] = 0
 
-    path =  "." + args.pickle_dir + name_param
+    if args.train:
+        path = args.output_dir + args.pickle_dir + name_param
+    else:
+        path =  "." + args.pickle_dir + name_param
     read_pickle(path, model, solver)
 
-    def adjust_learning_rate(optimizer, epoch, ft_step=args.ft_step, step=args.lr_step):
-
-        if int(epoch) == int(ft_step):
-            optimizer.param_groups[0]['lr'] = args.lr
-            print("CNN network's learning rate increase to {}".format(args.lr))
-        if step is not None and int(epoch) in step:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = param_group['lr'] * 0.1
-                print("ALL network's learning rate decrease to {}".format(param_group['lr']))
 
     if torch.cuda.is_available():
         print("using cuda")
@@ -123,14 +102,12 @@ def train(args):
         roipool.cuda()
         fasterrcnn.cuda()
 
-    for epoch in range(args.n_epochs):
-        solver.param_groups[0]['epoch'] += 1
+    for epoch in range(1):
         epoch = solver.param_groups[0]['epoch']
+        collected_boxes = [[[] for _ in range(len(trainset))]
+                 for _ in range(len(VOC_CLASSES))]
 
-
-        for image_, gt_boxes_c in trainloader:
-
-
+        for i, (image_, gt_boxes_c) in enumerate(trainloader):
 
             solver.param_groups[0]['iter'] += 1
             iteration = solver.param_groups[0]['iter']
@@ -183,15 +160,11 @@ def train(args):
 
 
 
-
             # ============= Get Targets =================#
 
             rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
             frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, args)
 
-
-            #print("rpn_bbox_targets[rpn_bbox_targets != 0]",len(rpn_bbox_targets[rpn_bbox_targets != 0]))
-            #print("frcnn_bbox_targets[frcnn_bbox_targets!=0]",len(frcnn_bbox_targets[frcnn_bbox_targets!=0]))
             # ============= frcnn ========================#
 
             rois_features = roipool(features, roi_boxes)
@@ -206,9 +179,10 @@ def train(args):
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
             total_loss =  rpnloss + frcnnloss
 
-            # print(total_loss)
 
+            """
 
+            test time don't need to compute gradient and update
 
             # ============= Update =======================#
 
@@ -217,7 +191,7 @@ def train(args):
 
             solver.step()
             #print("one batch training time : {:.2f}".format(pc() - t0))
-
+            """
 
             proposal_size = frcnn_labels.shape[0]
 
@@ -225,37 +199,10 @@ def train(args):
             time = float(pc() - t0)
 
 
-            # =============== logging each iteration ===============#
-
-
-            if args.use_tensorboard:
-                log_save_path = args.output_dir + args.log_dir + name_param
-                if not os.path.exists(log_save_path):
-                    os.makedirs(log_save_path)
-
-                info = {
-                    'loss/rpn_cls_loss': rpn_cls_loss.data[0],
-                    'loss/rpn_reg_loss': rpn_reg_loss.data[0],
-                    'loss/rpn_loss': rpnloss.data[0],
-                    'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
-                    'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
-                    'loss/frcnn_loss': frcnnloss.data[0],
-                    'loss/total_loss': total_loss.data[0],
-                    'etc/proposal_size': proposal_size,
-                    'etc/rpn_fg_boxes_size': rpn_log[0],
-                    'etc/frccn_fg_boxes_size': frcnn_log[0],
-                    'etc/frccn_bg_boxes_size': frcnn_log[1],
-
-                }
-
-                for tag, value in info.items():
-                    inject_summary(summary_writer, tag, value, iteration)
-
-                summary_writer.flush()
-
             # TODO average loss, average tiem
-            print('Epoch : {}, Iter-{} , rpn_loss : {:.4}, frcnn_loss : {:.4}, total_loss : {:.4}, boxes_log : {} {} {} {}, lr : {:.4}, time : {:.4}'
-                .format(
+            print(
+                'VAL-Epoch : {}, Iter-{} , rpn_loss : {:.4}, frcnn_loss : {:.4}, total_loss : {:.4}, boxes_log : {} {} {} {}, lr : {:.4}, time : {:.4}'
+                    .format(
                     epoch,
                     iteration,
                     rpnloss.data[0],
@@ -267,7 +214,59 @@ def train(args):
                     frcnn_log[1],
                     solver.state_dict()['param_groups'][0]["lr"],
                     time)
-                )
+            )
+
+            # =========== collect boxes each iteration ============#
+
+            image_np = image.data.cpu().numpy()
+            score_np = scores
+            cls_score_np = cls_score.data.cpu().numpy()
+            roi_boxes_np = np.array(roi_boxes)
+            bbox_pred_np = bbox_pred.data.cpu().numpy()
+
+            roi_boxes_np = clip_boxes(roi_boxes_np, image_np.shape[-2:])
+
+            # skip j = 0, because it's the background class
+            for j in range(1, len(VOC_CLASSES)):
+
+                indices = np.where(cls_score_np[:, j] > args.test_ob_thresh)[0]
+                j_cls_score = cls_score_np[indices, j]
+                j_bbox_pred = bbox_pred_np[indices, j*4:(j+1)*4]
+                j_roi_boxes = roi_boxes_np[indices, :]
+
+
+                j_boxes = bbox_transform_inv(j_roi_boxes, j_bbox_pred)
+
+                # this boxes : [x,y,x`,y`,class]
+                j_boxes_c = np.hstack((j_boxes, j_cls_score[:, np.newaxis]))
+
+                keep = py_cpu_nms(j_boxes_c, args.test_nms)
+
+                j_boxes_c = j_boxes_c[keep, :]
+
+                # y*1/scale[0] , y`*1/scale[0]
+                j_boxes_c[:, 0] *= 1/scale[0]
+                j_boxes_c[:, 2] *= 1/scale[0]
+
+                # x*1/scale[1] , x`*1/scale[1]
+                j_boxes_c[:, 1] *= 1/scale[1]
+                j_boxes_c[:, 3] *= 1/scale[1]
+
+                j_boxes_c.astype('int')
+                collected_boxes[j][i] = j_boxes_c
+
+
+
+            if args.test_max_per_image > 0:
+                image_scores = np.hstack([collected_boxes[j][i][:, 0]
+                                          for j in range(1, len(VOC_CLASSES))])
+
+                if len(image_scores) > args.test_max_per_image:
+                    image_thresh = np.sort(image_scores)[-args.test_max_per_image]
+                    for j in range(1, len(VOC_CLASSES)):
+                        keep = np.where(collected_boxes[j][i][:, -1] >= image_thresh)[0]
+                        collected_boxes[j][i] = collected_boxes[j][i][keep, :]
+
             # =========== visualization img with object ============#
 
             if (iteration) % args.image_save_step == 0:
@@ -277,45 +276,51 @@ def train(args):
                 # img_show(image_np, all_anchors_boxes)
 
 
-
-                image_np = image.data.cpu().numpy()
-                score_np = scores
-                cls_score_np = cls_score.data.cpu().numpy()
-                roi_boxes_np = np.array(roi_boxes)
-                bbox_pred_np = bbox_pred.data.cpu().numpy()
-
-                #all_anchors_img = img_get(image_np, all_anchors_boxes, show=True)
                 proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
                 obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
                 gt_img = img_get(image_np, gt_boxes_c[:, 1:], gt_boxes_c[:, 0].astype('int'), show=False)
 
-                fig = plt.figure(figsize=(15, 30)) # width 2700 height 900
+                fig = plt.figure(figsize=(15, 30))  # width 2700 height 900
                 plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, hspace=0.02)
 
                 for i, img in enumerate([proposal_img, obj_img, gt_img]):
-                    axes = fig.add_subplot(3, 1, 1+i)
+                    axes = fig.add_subplot(3, 1, 1 + i)
                     axes.axis('off')
                     axes.imshow(np.asarray(img, dtype='uint8'), aspect='auto')
-
 
                 path = args.output_dir + args.image_dir + name_param
 
                 if not os.path.exists(path):
                     os.makedirs(path)
 
-                plt.savefig(path + "/" + str(epoch) + "_" + str(iteration)+ '.png')
+                plt.savefig(path + "/" + str(epoch) + "_" + str(iteration) + "_val" + '.png')
                 plt.close("all")
                 print("save image")
 
+    path = args.output_dir + args.result_dir + name_param
 
-        # =============== each epoch save model or save image ===============#
+    if not os.path.exists(path):
+        os.makedirs(path)
 
+    with open(path + "/collected_boxes_" + str(epoch) + ".pkl", "wb") as f:
+        pickle.dump(collected_boxes, f)
 
-        if (epoch) % args.pickle_step == 0:
-            path = args.output_dir + args.pickle_dir + name_param
-            save_pickle(path, epoch, model, solver)
-            print("save model, optim")
-
-        adjust_learning_rate(solver, epoch)
-
+    filename = path + "/det_test_{:s}.txt"
+    for cls_ind, cls in enumerate(VOC_CLASSES):
+        if cls == 'background':
+            continue
+        print('Writing {} VOC results file'.format(cls))
+        cls_filename = filename.format(cls)
+        with open(cls_filename, 'wt') as f:
+            for im_ind, index in enumerate(trainset.ids):
+                dets = collected_boxes[cls_ind][im_ind]
+                if dets == []:
+                    continue
+                # the VOCdevkit expects 1-based indices
+                for k in range(dets.shape[0]):
+                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                            # this boxes : [x,y,x`,y`,class]
+                            format(index, dets[k, 4],
+                                   dets[k, 0] + 1, dets[k, 1] + 1,
+                                   dets[k, 2] + 1, dets[k, 3] + 1))
 

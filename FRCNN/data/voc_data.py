@@ -201,18 +201,3 @@ def detection_collate(batch):
     targets = torch.cat(targets, dim=0)
     return (torch.stack(imgs, 0), targets)
 
-if __name__ == '__main__':
-    from torchvision import transforms
-
-    transform = transforms.Compose([transforms.ToTensor()])
-
-
-    trainset = VOCDetection(root="../input/VOCdevkit", image_set="train",
-                            transform=transform, target_transform=AnnotationTransform())
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=True,
-    num_workers = 1, collate_fn = detection_collate)
-
-    it = iter(trainloader)
-    print(next(it))
-
-    trainset.show(3)

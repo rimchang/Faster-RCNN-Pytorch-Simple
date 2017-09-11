@@ -1,12 +1,13 @@
-import torch
-from torch.autograd import Variable
 import os
-import matplotlib.pyplot as plt
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
 
-from data import COLORS, VOC_CLASSES
+import numpy as np
+import torch
+from PIL import Image, ImageDraw, ImageFont
+from torch.autograd import Variable
+
+from data.voc_data import COLORS, VOC_CLASSES
 from utils_.boxes_utils import clip_boxes, bbox_transform_inv, py_cpu_nms
+
 
 def to_var(x, *args, **kwargs):
     if torch.cuda.is_available():
@@ -43,14 +44,14 @@ def read_pickle(path, model, solver):
         print("fail try read_pickle", e)
 
 
-def save_pickle(path, iteration, model, solver):
+def save_pickle(path, epoch, model, solver):
 
     if not os.path.exists(path):
         os.makedirs(path)
 
-    with open(path + "/model_" + str(iteration) + ".pkl", "wb") as f:
+    with open(path + "/model_" + str(epoch) + ".pkl", "wb") as f:
         torch.save(model.state_dict(), f)
-    with open(path + "/solver_" + str(iteration) + ".pkl", "wb") as f:
+    with open(path + "/solver_" + str(epoch) + ".pkl", "wb") as f:
         torch.save(solver.state_dict(), f)
 
 def save_image(path, iteration, img):
@@ -95,6 +96,40 @@ def img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True):
     return img
 
 
+def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True):
+    img_np = img_np.squeeze().transpose((1, 2, 0))
+
+
+    # denormalize
+    std = np.array([0.229, 0.224, 0.225])
+    mean = np.array([ 0.485,  0.456,  0.406])
+    img_np = (std * img_np + mean) * 255
+
+    # make PIL object
+    img = Image.fromarray(img_np.astype('uint8'))
+    draw = ImageDraw.Draw(img)
+
+
+
+    sorted_indices = np.argsort(score, axis=0)[::-1]
+
+    if boxes_np is not None:
+
+        for i in range(len(boxes_np)):
+            #intensity = 255 - int(pow(normalized_score[i][0] , 1/2) * 255)
+            where_argmax = np.where(sorted_indices == i)[0][0]
+            intensity = int(where_argmax / len(sorted_indices) * 255)
+
+            # 명도가 높을 수록... 더 score가 높은 box
+            color = (intensity, intensity, intensity, 128)
+
+            # print(score[i], color)
+            draw.rectangle(boxes_np[i], outline=color)
+
+    if show:
+        img.show()
+    return img
+
 def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=True):
     gt_assignment = np.argmax(cls_score_np, axis=1)
     max_score = np.max(cls_score_np, axis=1)
@@ -108,13 +143,14 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
         bbox_deltas.append(bbox_pred_np[index, start:end])
     bbox_deltas = np.vstack(bbox_deltas)
 
+    #print("roi_boxes_np.shaep, bbox_deltas.shape",roi_boxes_np.shape, bbox_deltas.shape)
     boxes = bbox_transform_inv(roi_boxes_np, bbox_deltas)
     boxes_c = np.hstack((max_score[:,np.newaxis], boxes))
 
 
 
-    nms_keep = py_cpu_nms(boxes_c, args.nms_thresh)
-    th_keep_not = np.where(max_score < args.ob_thresh)
+    nms_keep = py_cpu_nms(boxes_c, args.test_nms)
+    th_keep_not = np.where(max_score < args.test_ob_thresh)
     fg_keep_not = np.where(gt_assignment == 0)
 
     cliped_boxes = clip_boxes(boxes, image_np.shape[-2:])
@@ -132,9 +168,9 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
     sort_keep = np.argsort(score_filterd)[::-1]
     sort_keep = sort_keep[:args.num_printobj]
 
-    np.set_printoptions(threshold=np.nan)
+    # np.set_printoptions(threshold=np.nan)
     # print("scores", sorted(max_score)[::-1], sort_keep.shape[0])
-    np.set_printoptions(threshold=100)
+    # np.set_printoptions(threshold=100)
 
     img = img_get(image_np, boxes_filterd[sort_keep], labels_filterd[sort_keep], score_filterd[sort_keep], show=show)
 
