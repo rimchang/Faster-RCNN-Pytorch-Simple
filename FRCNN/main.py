@@ -1,4 +1,6 @@
 import argparse
+from collections import OrderedDict
+from utils_.utils import make_name_string
 
 from run.train import train
 from run.make_val_boxes import make_val_boxes
@@ -28,6 +30,28 @@ def str2bool(v):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
+    # other parameters
+    parser.add_argument('--model_name', type=str, default="V3",
+                        help='this model name for save pickle, logs, output image path and if model_name contain V2 modelV2 excute')
+
+
+    parser.add_argument('--train', type=str2bool, default=False,
+                        help='train')
+    parser.add_argument('--make_val_boxes', type=str2bool, default=True,
+                        help='make_val_boxes')
+    parser.add_argument('--test', type=str2bool, default=True,
+                        help='test')
+    parser.add_argument('--use_tensorboard', type=str2bool, default=True,
+                        help='using tensorboard logging')
+
+    parser.add_argument('--test_max_per_image', type=int, default=10,
+                        help='max per image for test time')
+    parser.add_argument('--test_ob_thresh', type=int, default=0.05,
+                        help='class threshhold for test')
+    parser.add_argument('--frcnn_nms', type=int, default=0.3,
+                        help='frcnn nms thresh for last boxes')
+
+
     # proposal layer args
     proposal_layer = parser.add_argument_group('proposal_layer')
     proposal_layer.add_argument('--min_size', type=int, default=10,
@@ -39,12 +63,21 @@ if __name__ == '__main__':
     proposal_layer.add_argument('--nms_thresh', type=float, default=0.7,
                         help='IOU nms thresholds')
 
+    proposal_layer.add_argument('--test_pre_nms_topn', type=float, default=6000,
+                        help='proposal region topn filter before nms')
+    proposal_layer.add_argument('--test_post_nms_topn', type=float, default=300,
+                        help='proposal region topn filter after nms')
+    proposal_layer.add_argument('--test_nms_thresh', type=float, default=0.7,
+                        help='IOU nms thresholds')
+
     # rpn_targets args
     rpn_targets = parser.add_argument_group('rpn_targets')
     rpn_targets.add_argument('--neg_threshold', type=float, default=0.3,
                         help='negative sample thresholds')
     rpn_targets.add_argument('--pos_threshold', type=float, default=0.7,
                         help='positive sample thresholds')
+    rpn_targets.add_argument('--rpn_batch_size', type=int, default=256,
+                        help='mini batch size for rpn')
 
     # frcnn_targets args
     frcnn_targets = parser.add_argument_group('frcnn_targets')
@@ -54,6 +87,10 @@ if __name__ == '__main__':
                         help='foreground object thresholds')
     frcnn_targets.add_argument('--bg_threshold', type=tuple, default=(0.1, 0.5),
                         help='background object thresholds')
+    frcnn_targets.add_argument('--include_gt', type=str2bool, default=True,
+                        help='include ground truth box in frcnn_targets')
+    rpn_targets.add_argument('--frcnn_batch_size', type=int, default=256,
+                        help='mini batch size for frcnn')
 
 
     training = parser.add_argument_group('training')
@@ -75,59 +112,40 @@ if __name__ == '__main__':
                         help='object print number')
     training.add_argument('--init_gaussian', type=str2bool, default=True,
                         help='initialize weight with gaussian N(0,0.01)')
+    training.add_argument('--ft_conv3', type=str2bool, default=True,
+                        help='fine tuning after conv3 in vggnet')
     # Model Parmeters
-    parser.add_argument('--n_epochs', type=float, default=7,
+    training.add_argument('--n_epochs', type=float, default=5,
                         help='max epochs')
 
 
 
-
-
-
     # dir parameters
-    parser.add_argument('--output_dir', type=str, default="../output",
+    other = parser.add_argument_group('other')
+    other.add_argument('--output_dir', type=str, default="../output",
                         help='output path')
-    parser.add_argument('--input_dir', type=str, default='../input',
+    other.add_argument('--input_dir', type=str, default='../input',
                         help='input path')
-    parser.add_argument('--pickle_dir', type=str, default='/pickle',
+    other.add_argument('--pickle_dir', type=str, default='/pickle',
                         help='input path')
-    parser.add_argument('--result_dir', type=str, default='/result',
+    other.add_argument('--result_dir', type=str, default='/result',
                         help='input path')
-    parser.add_argument('--log_dir', type=str, default='/log',
+    other.add_argument('--log_dir', type=str, default='/log',
                         help='for tensorboard log path save in output_dir + log_dir')
-    parser.add_argument('--image_dir', type=str, default='/image',
+    other.add_argument('--image_dir', type=str, default='/image',
                         help='for output image path save in output_dir + image_dir')
 
-
     # step parameter
-    parser.add_argument('--pickle_step', type=int, default=7,
+    other.add_argument('--pickle_step', type=int, default=5,
                         help='pickle save at pickle_step epoch')
-    parser.add_argument('--log_step', type=int, default=1,
+    other.add_argument('--log_step', type=int, default=1,
                         help='tensorboard log save at log_step epoch')
-    parser.add_argument('--image_save_step', type=int, default=100,
+    other.add_argument('--image_save_step', type=int, default=100,
                         help='output image save at image_save_step iteration')
 
-    # other parameters
-    parser.add_argument('--model_name', type=str, default="4096",
-                        help='this model name for save pickle, logs, output image path and if model_name contain V2 modelV2 excute')
-    parser.add_argument('--use_tensorboard', type=str2bool, default=True,
-                        help='using tensorboard logging')
-
-    parser.add_argument('--train', type=str2bool, default=True,
-                        help='train')
-    parser.add_argument('--val', type=str2bool, default=True,
-                        help='val loss compute ?')
-    parser.add_argument('--make_val_boxes', type=str2bool, default=True,
-                        help='make_val_boxes')
-    parser.add_argument('--test', type=str2bool, default=True,
-                        help='test')
-    parser.add_argument('--test_max_per_image', type=int, default=10,
-                        help='max per image for test time')
-    parser.add_argument('--test_ob_thresh', type=int, default=0.05,
-                        help='class threshhold for test')
-    parser.add_argument('--test_nms', type=int, default=0.5,
-                        help='nms threshhold for test')
 
 
     args = parser.parse_args()
+
+
     main(args)

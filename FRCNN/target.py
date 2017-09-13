@@ -60,7 +60,7 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
 
     # print(labels[np.where(labels == 1)[0]])
     # subsample positive labels if we have too many
-    num_fg = int(0.5 * 256)
+    num_fg = int(0.5 * args.rpn_batch_size)
     fg_inds = np.where(labels == 1)[0]
     if len(fg_inds) > num_fg:
         disable_inds = np.random.choice(
@@ -99,7 +99,7 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
     gt_labels = gt_boxes_c[:, 0]
     gt_boxes = gt_boxes_c[:, 1:]
 
-    all_boxes = np.vstack((prop_boxes, gt_boxes))
+    all_boxes = np.vstack((prop_boxes, gt_boxes)) if args.include_gt else prop_boxes
     zeros = np.zeros((all_boxes.shape[0], 1), dtype=all_boxes.dtype)
     all_boxes_c = np.hstack((zeros, all_boxes))
 
@@ -108,7 +108,7 @@ def frcnn_targets(prop_boxes, gt_boxes_c, args):
     num_images = 1
 
     # number of roi_boxes_c each per image
-    rois_per_image = int(all_boxes_c.shape[0] / num_images)
+    rois_per_image = int(args.frcnn_batch_size / num_images)
     # number of foreground roi_boxes_c per image
     fg_rois_per_image = int(np.round(rois_per_image * args.fg_fraction))
 

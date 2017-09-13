@@ -11,18 +11,22 @@ from utils_.utils import make_name_string
 def eval(args):
 
     hyparam_list = [("model", args.model_name),
+                    ("train", (args.pre_nms_topn, args.nms_thresh, args.post_nms_topn)),
+                    ("test", (args.test_pre_nms_topn, args.test_nms_thresh, args.test_post_nms_topn)),
                     ("pos_th", args.pos_threshold),
                     ("bg_th", args.bg_threshold),
-                    ("moment", args.momentum),
-                    ("w_decay", args.weight_decay),
+                    ("init_gau", args.init_gaussian),
+                    ("last_nms", args.frcnn_nms),
+                    ("init_gau", args.init_gaussian),
+                    ("include_gt", args.include_gt),
+                    ("ft_conv3", args.ft_conv3),
                     ("lr", args.lr)]
 
-    if args.init_gaussian:
-        hyparam_list.append(("init_gau","T"))
 
     hyparam_dict = OrderedDict(((arg, value) for arg, value in hyparam_list))
     name_param = "/" + make_name_string(hyparam_dict)
     print(name_param)
+
     # =========== evaluation ============#
 
 

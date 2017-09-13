@@ -24,20 +24,34 @@ from utils_.boxes_utils import py_cpu_nms, bbox_transform_inv, clip_boxes
 def make_val_boxes(args):
 
     hyparam_list = [("model", args.model_name),
+                    ("train", (args.pre_nms_topn, args.nms_thresh, args.post_nms_topn)),
+                    ("test", (args.test_pre_nms_topn, args.test_nms_thresh, args.test_post_nms_topn)),
                     ("pos_th", args.pos_threshold),
                     ("bg_th", args.bg_threshold),
-                    ("moment", args.momentum),
-                    ("w_decay", args.weight_decay),
+                    ("init_gau", args.init_gaussian),
+                    ("last_nms", args.frcnn_nms),
+                    ("init_gau", args.init_gaussian),
+                    ("include_gt", args.include_gt),
+                    ("ft_conv3", args.ft_conv3),
                     ("lr", args.lr)]
 
-    if args.init_gaussian:
-        hyparam_list.append(("init_gau","T"))
 
     hyparam_dict = OrderedDict(((arg, value) for arg, value in hyparam_list))
     name_param = "/" + make_name_string(hyparam_dict)
     print(name_param)
 
 
+    # for using tensorboard
+    if args.use_tensorboard:
+        import tensorflow as tf
+
+        summary_writer = tf.summary.FileWriter(args.output_dir + args.log_dir + name_param+"_val")
+
+        def inject_summary(summary_writer, tag, value, step):
+                summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
+                summary_writer.add_summary(summary, global_step=step)
+
+        inject_summary = inject_summary
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -76,8 +90,14 @@ def make_val_boxes(args):
 
     print("model loading time : {:.2f}".format(pc() - t0))
 
+    # fine tuning after conv3_1
+    if args.ft_conv3:
+        for module in list(list(feature_extractor.children())[0].children())[:17]:
+            for param in module.parameters():
+                param.requires_grad = False
+
     solver = optim.SGD([
-                            {'params': feature_extractor.parameters(), 'lr': args.ft_lr},
+                            {'params': filter(lambda p: p.requires_grad, feature_extractor.parameters()), 'lr': args.ft_lr},
                             {'params': rpn.parameters()},
                             {'params': fasterrcnn.parameters()}
                         ], lr=args.lr,
@@ -136,13 +156,13 @@ def make_val_boxes(args):
             scale = (image.size()[2]/info[0], image.size()[3]/info[1]) # new/old
             image_info = (image.size()[2], image.size()[3], image.size()[1], scale)  # (H, W, C, S)
 
-            # y*scale[0] , y`*scale[0]
-            gt_boxes_c[:, 1] *= scale[0]
-            gt_boxes_c[:, 3] *= scale[0]
+            # x*scale[1](W) , x`*scale[1](W)
+            gt_boxes_c[:, 1] *= scale[1]
+            gt_boxes_c[:, 3] *= scale[1]
 
-            # x*scale[1] , x`*scale[1]
-            gt_boxes_c[:, 2] *= scale[1]
-            gt_boxes_c[:, 4] *= scale[1]
+            # y*scale[0](H) , y`*scale[0](H)
+            gt_boxes_c[:, 2] *= scale[0]
+            gt_boxes_c[:, 4] *= scale[0]
 
             gt_boxes_c = gt_boxes_c.numpy()
 
@@ -156,7 +176,7 @@ def make_val_boxes(args):
             # ============= region proposal =============#
 
             all_anchors_boxes = get_anchors(features, anchor)
-            proposals_boxes, scores = proplayer.proposal(rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, image_info, args)
+            proposals_boxes, scores = proplayer.proposal(rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, image_info, test=True, args=args)
 
 
 
@@ -193,25 +213,55 @@ def make_val_boxes(args):
             #print("one batch training time : {:.2f}".format(pc() - t0))
             """
 
-            proposal_size = frcnn_labels.shape[0]
+            proposal_log = (proposals_boxes.shape[0], frcnn_labels.shape[0])
 
 
             time = float(pc() - t0)
+            # =============== logging each iteration ===============#
+
+
+            if args.use_tensorboard:
+                log_save_path = args.output_dir + args.log_dir + name_param + "_val"
+                if not os.path.exists(log_save_path):
+                    os.makedirs(log_save_path)
+
+                info = {
+                    'loss/rpn_cls_loss': rpn_cls_loss.data[0],
+                    'loss/rpn_reg_loss': rpn_reg_loss.data[0],
+                    'loss/rpn_loss': rpnloss.data[0],
+                    'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
+                    'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
+                    'loss/frcnn_loss': frcnnloss.data[0],
+                    'loss/total_loss': total_loss.data[0],
+                    'etc/rpn_proposal_size': proposal_log[0],
+                    'etc/rpn_fg_boxes_size': rpn_log[0],
+                    'etc/frcnn_proposal_size': proposal_log[1],
+                    'etc/frccn_fg_boxes_size': frcnn_log[0],
+                    'etc/frccn_bg_boxes_size': frcnn_log[1],
+
+                }
+
+                for tag, value in info.items():
+                    inject_summary(summary_writer, tag, value, iteration)
+
+                summary_writer.flush()
 
 
             # TODO average loss, average tiem
             print(
-                'VAL-Epoch : {}, Iter-{} , rpn_loss : {:.4}, frcnn_loss : {:.4}, total_loss : {:.4}, boxes_log : {} {} {} {}, lr : {:.4}, time : {:.4}'
+                'VAL-Epoch : {}, Iter-{} , rpn_loss : {:.4f}, frcnn_loss : {:.4f}, total_loss : {:.4f}, boxes_log : {} {} {} {} {} {}, lr : {:.4f}, time : {:.4f}'
                     .format(
                     epoch,
                     iteration,
                     rpnloss.data[0],
                     frcnnloss.data[0],
                     total_loss.data[0],
-                    proposal_size,
+                    proposal_log[0],
                     rpn_log[0],
+                    proposal_log[1],
                     frcnn_log[0],
                     frcnn_log[1],
+                    gt_boxes_c.shape[0],
                     solver.state_dict()['param_groups'][0]["lr"],
                     time)
             )
@@ -224,7 +274,7 @@ def make_val_boxes(args):
             roi_boxes_np = np.array(roi_boxes)
             bbox_pred_np = bbox_pred.data.cpu().numpy()
 
-            roi_boxes_np = clip_boxes(roi_boxes_np, image_np.shape[-2:])
+
 
             # skip j = 0, because it's the background class
             for j in range(1, len(VOC_CLASSES)):
@@ -236,25 +286,28 @@ def make_val_boxes(args):
 
 
                 j_boxes = bbox_transform_inv(j_roi_boxes, j_bbox_pred)
+                j_boxes = clip_boxes(j_boxes, image_np.shape[-2:])
+
+                #print(VOC_CLASSES[j],"j_boxes before nms", j_boxes.astype('int'))
 
                 # this boxes : [x,y,x`,y`,class]
-                j_boxes_c = np.hstack((j_boxes, j_cls_score[:, np.newaxis]))
+                j_boxes_c = np.hstack((j_cls_score[:, np.newaxis], j_boxes))
 
-                keep = py_cpu_nms(j_boxes_c, args.test_nms)
+                keep = py_cpu_nms(j_boxes_c, args.frcnn_nms)
 
                 j_boxes_c = j_boxes_c[keep, :]
 
-                # y*1/scale[0] , y`*1/scale[0]
-                j_boxes_c[:, 0] *= 1/scale[0]
-                j_boxes_c[:, 2] *= 1/scale[0]
-
-                # x*1/scale[1] , x`*1/scale[1]
+                # x*scale[1](W) , x`*scale[1](W)
                 j_boxes_c[:, 1] *= 1/scale[1]
                 j_boxes_c[:, 3] *= 1/scale[1]
 
-                j_boxes_c.astype('int')
-                collected_boxes[j][i] = j_boxes_c
+                # y*scale[0](H) , y`*scale[0](H)
+                j_boxes_c[:, 2] *= 1/scale[0]
+                j_boxes_c[:, 4] *= 1/scale[0]
 
+                #j_boxes_c = j_boxes_c.astype('int')
+                collected_boxes[j][i] = j_boxes_c
+                #print(VOC_CLASSES[j],"j_boxes_c after nms",j_boxes_c.astype('int'))
 
 
             if args.test_max_per_image > 0:
@@ -264,7 +317,7 @@ def make_val_boxes(args):
                 if len(image_scores) > args.test_max_per_image:
                     image_thresh = np.sort(image_scores)[-args.test_max_per_image]
                     for j in range(1, len(VOC_CLASSES)):
-                        keep = np.where(collected_boxes[j][i][:, -1] >= image_thresh)[0]
+                        keep = np.where(collected_boxes[j][i][:, 0] >= image_thresh)[0]
                         collected_boxes[j][i] = collected_boxes[j][i][keep, :]
 
             # =========== visualization img with object ============#
@@ -320,7 +373,7 @@ def make_val_boxes(args):
                 for k in range(dets.shape[0]):
                     f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
                             # this boxes : [x,y,x`,y`,class]
-                            format(index, dets[k, 4],
-                                   dets[k, 0] + 1, dets[k, 1] + 1,
-                                   dets[k, 2] + 1, dets[k, 3] + 1))
+                            format(index, dets[k, 0],
+                                   dets[k, 1] + 1, dets[k, 2] + 1,
+                                   dets[k, 3] + 1, dets[k, 4] + 1))
 

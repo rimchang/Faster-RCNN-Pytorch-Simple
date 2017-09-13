@@ -35,8 +35,10 @@ def read_pickle(path, model, solver):
         print(recent_iter, path)
 
         with open(path + "/model_" + recent_iter + ".pkl", "rb") as f:
+            #model.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
             model.load_state_dict(torch.load(f))
         with open(path + "/solver_" + recent_iter + ".pkl", "rb") as f:
+            #solver.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
             solver.load_state_dict(torch.load(f))
 
     except Exception as e:
@@ -149,7 +151,7 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
 
 
 
-    nms_keep = py_cpu_nms(boxes_c, args.test_nms)
+    nms_keep = py_cpu_nms(boxes_c, args.frcnn_nms)
     th_keep_not = np.where(max_score < args.test_ob_thresh)
     fg_keep_not = np.where(gt_assignment == 0)
 

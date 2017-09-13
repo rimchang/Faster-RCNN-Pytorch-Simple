@@ -28,11 +28,15 @@ class ProposalLayer:
         #print("bbox_deltas", bbox_deltas.size())
         return bbox_deltas
 
-    def proposal(self, rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, im_info, args):
+    def proposal(self, rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, im_info, test, args):
         """
         proposal operation in cpu
         """
-        #print(rpn_bbox_pred.size(), rpn_cls_prob.size())
+        pre_nms_topn = args.pre_nms_topn if test == False else args.test_pre_nms_topn
+        nms_thresh = args.nms_thresh if test == False else args.test_nms_thresh
+        post_nms_topn = args.post_nms_topn if test == False else args.test_post_nms_topn
+
+        #print(test, pre_nms_topn, nms_thresh, post_nms_topn)
         bbox_deltas = self._get_bbox_deltas(rpn_bbox_pred).data.cpu().numpy()
 
         # 1. Convert anchors into proposal via bbox transformation
@@ -43,7 +47,7 @@ class ProposalLayer:
 
         height, width = im_info[0:2]
 
-        if args.test == False:
+        if test == False:
             _allowed_border = 0
             inds_inside = np.where(
                 (all_anchors_boxes[:, 0] >= -_allowed_border) &
@@ -65,7 +69,7 @@ class ProposalLayer:
         # 4. sort all (proposal, score) pairs by score from highest to lowest
         pos_score = self._get_pos_score(rpn_cls_prob).data.cpu().numpy()
 
-        if args.test == False:
+        if test == False:
             mask = np.ones(proposals_boxes.shape[0], dtype=bool)  # np.ones_like(a,dtype=bool)
             mask[inds_inside] = False
             pos_score[mask] = 0.0
@@ -81,18 +85,18 @@ class ProposalLayer:
 
         # print("indices len", indices.shape[0], indices)
         # 5. take topn score proposal
-        topn_indices = indices[:self.args.pre_nms_topn]
+        topn_indices = indices[:pre_nms_topn]
         #print(indices, filter_indices, len(indices), len(filter_indices))
 
 
         # 6. apply nms (e.g. threshold = 0.7)
         proposals_boxes_c = np.hstack((pos_score[topn_indices], proposals_boxes[topn_indices]))  # (1000, 5)
         #keep = py_cpu_nms(proposals_boxes_c, self.args.nms_thresh)
-        keep = py_cpu_nms(proposals_boxes_c, self.args.nms_thresh)
+        keep = py_cpu_nms(proposals_boxes_c, nms_thresh)
 
         # 7. take after_nms_topn (e.g. 300)
-        if self.args.post_nms_topn > 0:
-            keep = keep[:self.args.post_nms_topn]
+        if post_nms_topn > 0:
+            keep = keep[:post_nms_topn]
 
 
         # 8. return the top proposals (-> RoIs top)
