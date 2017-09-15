@@ -56,7 +56,7 @@ def train(args):
         transforms.ToTensor(),
     ])
 
-    trainset = VOCDetection(root=args.input_dir + "/VOCdevkit", image_set="train",
+    trainset = VOCDetection(root=args.input_dir + "/train/VOCdevkit", image_set="trainval",
                             transform=transform, target_transform=AnnotationTransform())
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=True,
     num_workers = 1, collate_fn = detection_collate)
@@ -94,6 +94,7 @@ def train(args):
                 param.requires_grad = False
 
 
+    # initialization new layer weight N(0, 0.01)
     if args.init_gaussian:
         for module in [rpn, fasterrcnn, roipool]:
             for weight in module.parameters():
@@ -108,7 +109,6 @@ def train(args):
                       momentum=args.momentum,
                       weight_decay=args.weight_decay)
 
-    #solver.param_groups[0]['step'] = 0
     solver.param_groups[0]['epoch'] = 0
     solver.param_groups[0]['iter'] = 0
 
@@ -133,23 +133,22 @@ def train(args):
         fasterrcnn.cuda()
 
     for epoch in range(args.n_epochs):
+
         solver.param_groups[0]['epoch'] += 1
         epoch = solver.param_groups[0]['epoch']
 
-
         for image_, gt_boxes_c in trainloader:
-
 
 
             solver.param_groups[0]['iter'] += 1
             iteration = solver.param_groups[0]['iter']
 
-            # boxes_c : [class, x, y, x`, y`]
+            # boxes_c : [x, y, x`, y`, class]
             # boxes : [x, y, x`, y`]
 
 
             image = image_
-            info = (image.size()[2], image.size()[3], image.size()[1]) # (H, W, C)
+            old_image_info = (image.size()[2], image.size()[3], image.size()[1]) # (H, W, C)
 
 
             im_transform = transforms.Compose([
@@ -165,17 +164,18 @@ def train(args):
             image = image.unsqueeze(0)
 
 
-            scale = (image.size()[2]/info[0], image.size()[3]/info[1]) # new/old (H, W)
+            scale = (image.size()[2]/old_image_info[0], image.size()[3]/old_image_info[1]) # new/old (H, W)
             image_info = (image.size()[2], image.size()[3], image.size()[1], scale)  # (H, W, C, S)
 
-            # TODO 개헷갈리네..
+            # gt_boxes_c : [x, y, x`, y`, class]
+
             # x*scale[1](W) , x`*scale[1](W)
-            gt_boxes_c[:, 1] *= scale[1]
-            gt_boxes_c[:, 3] *= scale[1]
+            gt_boxes_c[:, 0] *= scale[1]
+            gt_boxes_c[:, 2] *= scale[1]
 
             # y*scale[0](H) , y`*scale[0](H)
-            gt_boxes_c[:, 2] *= scale[0]
-            gt_boxes_c[:, 4] *= scale[0]
+            gt_boxes_c[:, 1] *= scale[0]
+            gt_boxes_c[:, 3] *= scale[0]
 
             gt_boxes_c = gt_boxes_c.numpy()
 
@@ -194,11 +194,9 @@ def train(args):
             # ============= Get Targets =================#
 
             rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
 
-            #print("rpn_bbox_targets[rpn_bbox_targets != 0]",len(rpn_bbox_targets[rpn_bbox_targets != 0]))
-            #print("frcnn_bbox_targets[frcnn_bbox_targets!=0]",len(frcnn_bbox_targets[frcnn_bbox_targets!=0]))
             # ============= frcnn ========================#
 
             rois_features = roipool(features, roi_boxes)
@@ -297,7 +295,7 @@ def train(args):
                 #all_anchors_img = img_get(image_np, all_anchors_boxes, show=True)
                 proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
                 obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
-                gt_img = img_get(image_np, gt_boxes_c[:, 1:], gt_boxes_c[:, 0].astype('int'), show=False)
+                gt_img = img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
 
                 fig = plt.figure(figsize=(15, 30)) # width 2700 height 900
                 plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, hspace=0.02)

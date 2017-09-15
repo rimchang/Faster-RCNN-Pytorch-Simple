@@ -41,15 +41,13 @@ def rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets):
     rpn_bbox_targets = rpn_bbox_targets.view(1, height, width, -1).permute(0, 3, 1, 2)
     rpn_bbox_targets = to_var(rpn_bbox_targets, requires_grad=False)
 
-    # TODO 로스이렇게 쓰는게 맞는지...확인해라!!
 
     cls_crit = nn.NLLLoss()
     reg_crit = nn.SmoothL1Loss()
+
     log_rpn_cls_prob = torch.log(rpn_cls_prob)
     cls_loss = cls_crit(log_rpn_cls_prob, labels)
-    # verify normalization and sigma
     reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets)
-
 
     return cls_loss, reg_loss
 

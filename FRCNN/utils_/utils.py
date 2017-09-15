@@ -35,11 +35,17 @@ def read_pickle(path, model, solver):
         print(recent_iter, path)
 
         with open(path + "/model_" + recent_iter + ".pkl", "rb") as f:
-            #model.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
-            model.load_state_dict(torch.load(f))
+            if torch.cuda.is_available():
+                model.load_state_dict(torch.load(f))
+            else:
+                model.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
+
         with open(path + "/solver_" + recent_iter + ".pkl", "rb") as f:
-            #solver.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
-            solver.load_state_dict(torch.load(f))
+            if torch.cuda.is_available():
+                solver.load_state_dict(torch.load(f))
+            else:
+                solver.load_state_dict(torch.load(f, map_location=lambda storage, loc: storage))
+
 
     except Exception as e:
 
@@ -118,14 +124,13 @@ def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True
     if boxes_np is not None:
 
         for i in range(len(boxes_np)):
-            #intensity = 255 - int(pow(normalized_score[i][0] , 1/2) * 255)
+
             where_argmax = np.where(sorted_indices == i)[0][0]
             intensity = int(where_argmax / len(sorted_indices) * 255)
 
-            # 명도가 높을 수록... 더 score가 높은 box
+            # 명도가 높을 수록... 더 score가 높은 box RPN 결과 시각화를
             color = (intensity, intensity, intensity, 128)
 
-            # print(score[i], color)
             draw.rectangle(boxes_np[i], outline=color)
 
     if show:
@@ -133,10 +138,11 @@ def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True
     return img
 
 def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=True):
+
     gt_assignment = np.argmax(cls_score_np, axis=1)
     max_score = np.max(cls_score_np, axis=1)
 
-    #print([type(j)  for j in [image_np, cls_score_np, bbox_pred_np, roi_boxes_np]])
+    # bbox_pred_np (?, 84) make to bbox_deltas (?, 4)
     bbox_deltas = []
     for index in range(len(gt_assignment)):
         cls = int(gt_assignment[index])
@@ -145,20 +151,22 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
         bbox_deltas.append(bbox_pred_np[index, start:end])
     bbox_deltas = np.vstack(bbox_deltas)
 
-    #print("roi_boxes_np.shaep, bbox_deltas.shape",roi_boxes_np.shape, bbox_deltas.shape)
+
+    # bbox_deltas to boxes
     boxes = bbox_transform_inv(roi_boxes_np, bbox_deltas)
-    boxes_c = np.hstack((max_score[:,np.newaxis], boxes))
+    boxes_c = np.hstack((boxes, max_score[:, np.newaxis]))
 
+    # clip boxes
+    cliped_boxes = clip_boxes(boxes, image_np.shape[-2:])
 
-
+    # apply nms for last object detection and find unsurely object , background object
     nms_keep = py_cpu_nms(boxes_c, args.frcnn_nms)
     th_keep_not = np.where(max_score < args.test_ob_thresh)
     fg_keep_not = np.where(gt_assignment == 0)
 
-    cliped_boxes = clip_boxes(boxes, image_np.shape[-2:])
 
-    # keep indices
-    mask = np.zeros(gt_assignment.shape[0], dtype=bool)  # np.ones_like(a,dtype=bool)
+    # keep nms_keep, and remove th_keep_not, fg_keep_not
+    mask = np.zeros(gt_assignment.shape[0], dtype=bool)
     mask[nms_keep] = True
     mask[th_keep_not] = False
     mask[fg_keep_not] = False
@@ -167,12 +175,10 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
     labels_filterd = gt_assignment[mask]
     score_filterd = max_score[mask]
 
+
+    # filtering for don't print too many object
     sort_keep = np.argsort(score_filterd)[::-1]
     sort_keep = sort_keep[:args.num_printobj]
-
-    # np.set_printoptions(threshold=np.nan)
-    # print("scores", sorted(max_score)[::-1], sort_keep.shape[0])
-    # np.set_printoptions(threshold=100)
 
     img = img_get(image_np, boxes_filterd[sort_keep], labels_filterd[sort_keep], score_filterd[sort_keep], show=show)
 

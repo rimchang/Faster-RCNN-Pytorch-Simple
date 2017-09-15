@@ -119,8 +119,6 @@ def voc_eval(detpath,
         with open(cachefile, 'rb') as f:
             recs = pickle.load(f)
 
-    #print("recs",recs)
-    #print("imagenames",imagenames)
 
     # extract gt objects for this class
     class_recs = {}
@@ -139,8 +137,7 @@ def voc_eval(detpath,
     detfile = detpath.format(classname)
     with open(detfile, 'r') as f:
         lines = f.readlines()
-    #print(detfile)
-    #print("lines", lines)
+
     splitlines = [x.strip().split(' ') for x in lines]
     image_ids = [x[0] for x in splitlines]
     confidence = np.array([float(x[1]) for x in splitlines])
@@ -149,7 +146,7 @@ def voc_eval(detpath,
     # sort by confidence
     sorted_ind = np.argsort(-confidence)
     sorted_scores = np.sort(-confidence)
-    #print(BB.shape, sorted_ind.shape)
+
     BB = BB[sorted_ind, :]
     image_ids = [image_ids[x] for x in sorted_ind]
 

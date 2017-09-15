@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models
+import torch.nn.functional as F
 
 from utils_.utils import to_var
 
@@ -31,7 +32,6 @@ class RPN(nn.Module):
         super(RPN, self).__init__()
 
         self.conv = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=(1, 1))
-        self.relu = nn.ReLU()
 
         # 9 anchor * 2 classfier (object or non-object)
         self.conv1 = nn.Conv2d(512, 2 * 9, kernel_size=1, stride=1)
@@ -41,8 +41,8 @@ class RPN(nn.Module):
         self.softmax = nn.Softmax()
 
     def forward(self, features):
-        features = self.conv(features)
-        features = self.relu(features)
+        features = F.relu(self.conv(features))
+
         logits, rpn_bbox_pred = self.conv1(features), self.conv2(features)
         # torch.Size([1, 18, 14, 14]) torch.Size([1, 36, 14, 14])
         # print(logits.size(), rpn_bbox_pred.size())
@@ -67,29 +67,22 @@ class ROIpooling(nn.Module):
         self.adapmax2d = nn.AdaptiveMaxPool2d(size)
         self.spatial_scale = spatial_scale
 
-    def forward(self, features, rois):
+    def forward(self, features, rois_boxes):
 
-        # features : torch.Size([1, 512, 14, 14])
-        # rois : torch.Size([1764, 5])
+        # rois_boxes : [x, y, x`, y`]
 
-        if type(rois) == np.ndarray:
-            rois = to_var(torch.from_numpy(rois))
+        if type(rois_boxes) == np.ndarray:
+            rois_boxes = to_var(torch.from_numpy(rois_boxes))
 
-        rois = rois.data.float().clone()
-        #rois[:, 1:].mul_(self.spatial_scale)
-        rois.mul_(self.spatial_scale)
-        rois = rois.long()
+        rois_boxes = rois_boxes.data.float().clone()
+        rois_boxes.mul_(self.spatial_scale)
+        rois_boxes = rois_boxes.long()
 
         output = []
-        # print(features.size(), rois.size())
-        # print("feature : {}".format(features.size()))
-        for i in range(rois.size(0)):
-            roi = rois[i]
-            # im_idx = roi[0]
 
-            # print(roi)
-            # roi : (class, x, y, x`, y`)
-            #roi_feature = features[:, :, roi[2]:(roi[4] + 1), roi[1]:(roi[3] + 1)]
+        for i in range(rois_boxes.size(0)):
+            roi = rois_boxes[i]
+
             try:
 
                 roi_feature = features[:, :, roi[1]:(roi[3] + 1), roi[0]:(roi[2] + 1)]
@@ -114,8 +107,8 @@ class FasterRcnn(nn.Module):
 
     def forward(self, features):
         features = features.view(-1, 512 * 7 * 7)
-        features = self.fc1(features)
-        features = self.fc2(features)
+        features = F.relu(self.fc1(features))
+        features = F.relu(self.fc2(features))
         logits = self.classfier(features)
 
         return self.regressor(features), self.softmax(logits)

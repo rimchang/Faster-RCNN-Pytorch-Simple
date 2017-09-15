@@ -71,7 +71,7 @@ class AnnotationTransform(object):
 
             label_ind = self.class_to_ind[name]
             # bndbox에 label을 추가.
-            bndbox.insert(0, label_ind)
+            bndbox.append(label_ind)
             res += [bndbox]  # [xmin, ymin, xmax, ymax, ind]
 
         return res  # [[xmin, ymin, xmax, ymax, ind], ... ]

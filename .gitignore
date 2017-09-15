@@ -1,6 +1,4 @@
 .idea/
-input/VOCdevkit/
-output/log/
-output/pickle/
-output/image/
+input/
+output/
 FRCNN/__pycache__/

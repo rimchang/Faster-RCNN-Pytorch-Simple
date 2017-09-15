@@ -71,7 +71,7 @@ def _unmap(data, count, inds, fill=0):
 def bbox_transform(boxes, gt_boxes):
     # boxes is anchor or pred_rois
 
-    # rois : (x, y, x`, y`)
+    # gt_boxes : (x, y, x`, y`)
     # x` - x + 1 = width
     # y` - y  +1 = height
     # x + 0.5 * width = ctr_x
@@ -101,8 +101,6 @@ def bbox_transform(boxes, gt_boxes):
     # t_h* = log(h*/h_a)
 
 
-    # print("gt_widths / ex_widths", gt_widths / ex_widths)
-    # print("gt_heights / ex_heights", gt_heights / ex_heights)
     targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
     targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
     targets_dw = np.log(gt_widths / ex_widths)
@@ -116,10 +114,9 @@ def bbox_transform(boxes, gt_boxes):
 
 def bbox_transform_inv(boxes, deltas):
     # boxes is anchor or pred_box
-    # if image is (224 * 224) then boxes are (1764, 4)
-    # deltas are also (1764, 4)
+    # if feature map is (H/16 * W/16) then boxes are (H/16 * W/16, 4)
+    # deltas are also (H/16 * W/16, 4)
 
-    #print(boxes.shape, deltas.shape)
 
     if boxes.shape[0] == 0:
         return np.zeros((0, deltas.shape[1]), dtype=deltas.dtype)
@@ -157,20 +154,20 @@ def bbox_transform_inv(boxes, deltas):
     # t_w* = log(w*/w_a)
     # t_h* = log(h*/h_a)
 
-    # (1764, 1 ) * (1764, 1) + (1764, 1) = > (1764, 1)
+    # (H/16 * W/16, 1 ) * (H/16 * W/16, 1) + (H/16 * W/16, 1) = > (H/16 * W/16, 1)
     pred_ctr_x = dx * widths[:, np.newaxis] + ctr_x[:, np.newaxis]
     pred_ctr_y = dy * heights[:, np.newaxis] + ctr_y[:, np.newaxis]
     pred_w = np.exp(dw) * widths[:, np.newaxis]
     pred_h = np.exp(dh) * heights[:, np.newaxis]
 
     pred_boxes = np.zeros(deltas.shape, dtype=deltas.dtype)
-    # x1
+    # x
     pred_boxes[:, col_0] = pred_ctr_x - 0.5 * pred_w
-    # y1
+    # y
     pred_boxes[:, col_1] = pred_ctr_y - 0.5 * pred_h
-    # x2
+    # x`
     pred_boxes[:, col_2] = pred_ctr_x + 0.5 * pred_w
-    # y2
+    # y`
     pred_boxes[:, col_3] = pred_ctr_y + 0.5 * pred_h
 
     return pred_boxes
@@ -197,21 +194,19 @@ def filter_boxes(boxes, min_size):
     """Remove all boxes with any side smaller than min_size."""
     ws = boxes[:, 2] - boxes[:, 0] + 1
     hs = boxes[:, 3] - boxes[:, 1] + 1
-    #np.set_printoptions(threshold=np.nan)
-    #print("box: {}, ws : {}, hs : {}".format(boxes, ws, hs))
-    #np.set_printoptions(threshold=100)
+
     keep = np.where((ws >= min_size) & (hs >= min_size))[0]
-    #print('box_num : {}, filter_boxe : {}'.format(boxes.shape[0], keep.shape[0]))
+
     return keep
 
 def py_cpu_nms(proposals_boxes_c, thresh):
     """Pure Python NMS baseline."""
     # proposals_boxes_c (? , 5)[class, x, y, x`, y`]
-    scores = proposals_boxes_c[:, 0]
-    x1 = proposals_boxes_c[:, 1]
-    y1 = proposals_boxes_c[:, 2]
-    x2 = proposals_boxes_c[:, 3]
-    y2 = proposals_boxes_c[:, 4]
+    scores = proposals_boxes_c[:, -1]
+    x1 = proposals_boxes_c[:, 0]
+    y1 = proposals_boxes_c[:, 1]
+    x2 = proposals_boxes_c[:, 2]
+    y2 = proposals_boxes_c[:, 3]
     
 
     areas = (x2 - x1 + 1) * (y2 - y1 + 1) # width * height

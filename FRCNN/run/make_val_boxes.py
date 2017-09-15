@@ -9,10 +9,8 @@ import os
 import pickle
 
 from data.voc_data import VOCDetection, detection_collate, AnnotationTransform, VOC_CLASSES
-from data.voc_eval import voc_eval
 from utils_.utils import make_name_string
 from utils_.anchors import get_anchors, anchor
-
 from model import *
 from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
@@ -55,12 +53,11 @@ def make_val_boxes(args):
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        #transforms.Normalize((0.485, 0.456, 0.406),
-        #                     (0.229, 0.224, 0.225)),
     ])
-    trainset = VOCDetection(root=args.input_dir + "/VOCdevkit", image_set="val",
+    
+    testset = VOCDetection(root=args.input_dir + "/test/VOCdevkit", image_set="test",
                             transform=transform, target_transform=AnnotationTransform())
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=False,
+    testloader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False,
     num_workers = 1, collate_fn = detection_collate)
 
 
@@ -104,7 +101,7 @@ def make_val_boxes(args):
                       momentum=args.momentum,
                       weight_decay=args.weight_decay)
 
-    #solver.param_groups[0]['step'] = 0
+
     solver.param_groups[0]['epoch'] = 0
     solver.param_groups[0]['iter'] = 0
 
@@ -123,21 +120,22 @@ def make_val_boxes(args):
         fasterrcnn.cuda()
 
     for epoch in range(1):
+
         epoch = solver.param_groups[0]['epoch']
-        collected_boxes = [[[] for _ in range(len(trainset))]
+        collected_boxes = [[[] for _ in range(len(testset))]
                  for _ in range(len(VOC_CLASSES))]
 
-        for i, (image_, gt_boxes_c) in enumerate(trainloader):
+        for i, (image_, gt_boxes_c) in enumerate(testloader):
 
             solver.param_groups[0]['iter'] += 1
             iteration = solver.param_groups[0]['iter']
 
-            # boxes_c : [class, x, y, x`, y`]
+            # boxes_c : [x, y, x`, y`, class]
             # boxes : [x, y, x`, y`]
 
 
             image = image_
-            info = (image.size()[2], image.size()[3], image.size()[1]) # (H, W, C)
+            old_image_info = (image.size()[2], image.size()[3], image.size()[1]) # (H, W, C)
 
 
             im_transform = transforms.Compose([
@@ -153,16 +151,18 @@ def make_val_boxes(args):
             image = image.unsqueeze(0)
 
 
-            scale = (image.size()[2]/info[0], image.size()[3]/info[1]) # new/old
+            scale = (image.size()[2]/old_image_info[0], image.size()[3]/old_image_info[1]) # new/old (H, W)
             image_info = (image.size()[2], image.size()[3], image.size()[1], scale)  # (H, W, C, S)
 
+            # gt_boxes_c : [x, y, x`, y`, class]
+
             # x*scale[1](W) , x`*scale[1](W)
-            gt_boxes_c[:, 1] *= scale[1]
-            gt_boxes_c[:, 3] *= scale[1]
+            gt_boxes_c[:, 0] *= scale[1]
+            gt_boxes_c[:, 2] *= scale[1]
 
             # y*scale[0](H) , y`*scale[0](H)
-            gt_boxes_c[:, 2] *= scale[0]
-            gt_boxes_c[:, 4] *= scale[0]
+            gt_boxes_c[:, 1] *= scale[0]
+            gt_boxes_c[:, 3] *= scale[0]
 
             gt_boxes_c = gt_boxes_c.numpy()
 
@@ -180,12 +180,15 @@ def make_val_boxes(args):
 
 
 
-            # ============= Get Targets =================#
+            # ============= Get Targets for compute loss =================#
 
             rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
-            # ============= frcnn ========================#
+            if roi_boxes.shape[0] == 0:
+                continue
+
+            # ============= frcnn for compute loss ========================#
 
             rois_features = roipool(features, roi_boxes)
             bbox_pred, cls_score = fasterrcnn(rois_features)
@@ -199,10 +202,24 @@ def make_val_boxes(args):
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
             total_loss =  rpnloss + frcnnloss
 
+            # ============= Get Targets for test =================#
+
+            rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=True, args=args)
+
+            if roi_boxes.shape[0] == 0:
+                continue
+
+
+            # ============= frcnn for test ========================#
+
+            rois_features = roipool(features, roi_boxes)
+            bbox_pred, cls_score = fasterrcnn(rois_features)
+
 
             """
 
-            test time don't need to compute gradient and update
+            don't need to compute gradient and update in test time
 
             # ============= Update =======================#
 
@@ -288,36 +305,37 @@ def make_val_boxes(args):
                 j_boxes = bbox_transform_inv(j_roi_boxes, j_bbox_pred)
                 j_boxes = clip_boxes(j_boxes, image_np.shape[-2:])
 
-                #print(VOC_CLASSES[j],"j_boxes before nms", j_boxes.astype('int'))
 
-                # this boxes : [x,y,x`,y`,class]
-                j_boxes_c = np.hstack((j_cls_score[:, np.newaxis], j_boxes))
+                # j_boxes_c : [x,y,x`,y`,score] for each j-th class
+                j_boxes_c = np.hstack((j_boxes, j_cls_score[:, np.newaxis]))
 
                 keep = py_cpu_nms(j_boxes_c, args.frcnn_nms)
 
                 j_boxes_c = j_boxes_c[keep, :]
 
+                # j_boxes_c : [x, y, x`, y`, score]
+
                 # x*scale[1](W) , x`*scale[1](W)
-                j_boxes_c[:, 1] *= 1/scale[1]
-                j_boxes_c[:, 3] *= 1/scale[1]
+                j_boxes_c[:, 0] *= 1/scale[1]
+                j_boxes_c[:, 2] *= 1/scale[1]
 
                 # y*scale[0](H) , y`*scale[0](H)
-                j_boxes_c[:, 2] *= 1/scale[0]
-                j_boxes_c[:, 4] *= 1/scale[0]
+                j_boxes_c[:, 1] *= 1/scale[0]
+                j_boxes_c[:, 3] *= 1/scale[0]
 
-                #j_boxes_c = j_boxes_c.astype('int')
+
                 collected_boxes[j][i] = j_boxes_c
-                #print(VOC_CLASSES[j],"j_boxes_c after nms",j_boxes_c.astype('int'))
+
 
 
             if args.test_max_per_image > 0:
-                image_scores = np.hstack([collected_boxes[j][i][:, 0]
+                image_scores = np.hstack([collected_boxes[j][i][:, -1]
                                           for j in range(1, len(VOC_CLASSES))])
 
                 if len(image_scores) > args.test_max_per_image:
                     image_thresh = np.sort(image_scores)[-args.test_max_per_image]
                     for j in range(1, len(VOC_CLASSES)):
-                        keep = np.where(collected_boxes[j][i][:, 0] >= image_thresh)[0]
+                        keep = np.where(collected_boxes[j][i][:, -1] >= image_thresh)[0]
                         collected_boxes[j][i] = collected_boxes[j][i][keep, :]
 
             # =========== visualization img with object ============#
@@ -331,7 +349,7 @@ def make_val_boxes(args):
 
                 proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
                 obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
-                gt_img = img_get(image_np, gt_boxes_c[:, 1:], gt_boxes_c[:, 0].astype('int'), show=False)
+                gt_img = img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
 
                 fig = plt.figure(figsize=(15, 30))  # width 2700 height 900
                 plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, hspace=0.02)
@@ -365,7 +383,7 @@ def make_val_boxes(args):
         print('Writing {} VOC results file'.format(cls))
         cls_filename = filename.format(cls)
         with open(cls_filename, 'wt') as f:
-            for im_ind, index in enumerate(trainset.ids):
+            for im_ind, index in enumerate(testset.ids):
                 dets = collected_boxes[cls_ind][im_ind]
                 if dets == []:
                     continue
@@ -373,7 +391,7 @@ def make_val_boxes(args):
                 for k in range(dets.shape[0]):
                     f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
                             # this boxes : [x,y,x`,y`,class]
-                            format(index, dets[k, 0],
-                                   dets[k, 1] + 1, dets[k, 2] + 1,
-                                   dets[k, 3] + 1, dets[k, 4] + 1))
+                            format(index, dets[k, -1],
+                                   dets[k, 0] + 1, dets[k, 1] + 1,
+                                   dets[k, 2] + 1, dets[k, 3] + 1))
 

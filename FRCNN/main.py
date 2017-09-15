@@ -1,6 +1,4 @@
 import argparse
-from collections import OrderedDict
-from utils_.utils import make_name_string
 
 from run.train import train
 from run.make_val_boxes import make_val_boxes
@@ -31,16 +29,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # other parameters
-    parser.add_argument('--model_name', type=str, default="V3",
-                        help='this model name for save pickle, logs, output image path and if model_name contain V2 modelV2 excute')
-
-
-    parser.add_argument('--train', type=str2bool, default=False,
+    parser.add_argument('--model_name', type=str, default="C2",
+                        help='this model_name is used for naming directory name')
+    parser.add_argument('--train', type=str2bool, default=True,
                         help='train')
     parser.add_argument('--make_val_boxes', type=str2bool, default=True,
-                        help='make_val_boxes')
+                        help='if this True, excute make_val_boxes after training ')
     parser.add_argument('--test', type=str2bool, default=True,
-                        help='test')
+                        help='if this True, excute test after training ')
     parser.add_argument('--use_tensorboard', type=str2bool, default=True,
                         help='using tensorboard logging')
 
@@ -89,7 +85,7 @@ if __name__ == '__main__':
                         help='background object thresholds')
     frcnn_targets.add_argument('--include_gt', type=str2bool, default=True,
                         help='include ground truth box in frcnn_targets')
-    rpn_targets.add_argument('--frcnn_batch_size', type=int, default=256,
+    frcnn_targets.add_argument('--frcnn_batch_size', type=int, default=256,
                         help='mini batch size for frcnn')
 
 
@@ -106,8 +102,6 @@ if __name__ == '__main__':
                         help='momentum')
     training.add_argument('--weight_decay', type=float, default=0.0005,
                         help='weight decay')
-    training.add_argument('--ob_thresh', type=float, default=0.05,
-                        help='object visualization threshold')
     training.add_argument('--num_printobj', type=int, default=10,
                         help='object print number')
     training.add_argument('--init_gaussian', type=str2bool, default=True,
@@ -115,7 +109,7 @@ if __name__ == '__main__':
     training.add_argument('--ft_conv3', type=str2bool, default=True,
                         help='fine tuning after conv3 in vggnet')
     # Model Parmeters
-    training.add_argument('--n_epochs', type=float, default=5,
+    training.add_argument('--n_epochs', type=float, default=4,
                         help='max epochs')
 
 
@@ -136,7 +130,7 @@ if __name__ == '__main__':
                         help='for output image path save in output_dir + image_dir')
 
     # step parameter
-    other.add_argument('--pickle_step', type=int, default=5,
+    other.add_argument('--pickle_step', type=int, default=4,
                         help='pickle save at pickle_step epoch')
     other.add_argument('--log_step', type=int, default=1,
                         help='tensorboard log save at log_step epoch')
