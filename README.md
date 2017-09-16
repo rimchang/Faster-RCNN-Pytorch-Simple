@@ -63,6 +63,6 @@ You may need to tune the loss function defined in `FRCNN/model.py` by yourself.
 ### Reference
 
 
-[faster_rcnn_pytorch](https://github.com/longcw/faster_rcnn_pytorch) 
+[faster_rcnn_pytorch](https://github.com/longcw/faster_rcnn_pytorch)   
 [pytorch pull request](https://github.com/pytorch/examples/pull/21/files).
 

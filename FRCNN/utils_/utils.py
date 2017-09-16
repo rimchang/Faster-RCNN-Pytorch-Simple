@@ -119,7 +119,7 @@ def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True
 
 
 
-    sorted_indices = np.argsort(score, axis=0)[::-1]
+    sorted_indices = np.argsort(score, axis=0)
 
     if boxes_np is not None:
 
@@ -128,7 +128,7 @@ def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True
             where_argmax = np.where(sorted_indices == i)[0][0]
             intensity = int(where_argmax / len(sorted_indices) * 255)
 
-            # 명도가 높을 수록... 더 score가 높은 box RPN 결과 시각화를
+            # 명도가 높을 수록... 더 score가 높은 box RPN 결과 시각화를 위해!
             color = (intensity, intensity, intensity, 128)
 
             draw.rectangle(boxes_np[i], outline=color)

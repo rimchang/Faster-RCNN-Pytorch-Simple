@@ -31,9 +31,9 @@ if __name__ == '__main__':
     # other parameters
     parser.add_argument('--model_name', type=str, default="C2",
                         help='this model_name is used for naming directory name')
-    parser.add_argument('--train', type=str2bool, default=True,
+    parser.add_argument('--train', type=str2bool, default=False,
                         help='train')
-    parser.add_argument('--make_val_boxes', type=str2bool, default=True,
+    parser.add_argument('--make_val_boxes', type=str2bool, default=False,
                         help='if this True, excute make_val_boxes after training ')
     parser.add_argument('--test', type=str2bool, default=True,
                         help='if this True, excute test after training ')

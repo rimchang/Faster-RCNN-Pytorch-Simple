@@ -8,9 +8,11 @@ from utils_.utils import to_var
 
 
 class CNN(nn.Module):
+
     def __init__(self):
         """Load the pretrained vgg11 and delete fc layer."""
         super(CNN, self).__init__()
+
         vggnet = models.vgg16(pretrained=True)
         modules = list(vggnet.children())[:-1]  # delete the last fc layer.
         modules = list(modules[0])[:-1]  # delete the last pooling layer
@@ -28,40 +30,41 @@ class CNN(nn.Module):
 
 
 class RPN(nn.Module):
+
     def __init__(self):
         super(RPN, self).__init__()
 
         self.conv = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=(1, 1))
 
-        # 9 anchor * 2 classfier (object or non-object)
+        # 9 anchor * 2 classfier (object or non-object) each grid
         self.conv1 = nn.Conv2d(512, 2 * 9, kernel_size=1, stride=1)
 
-        # 9 anchor * 4 coordinate regressor
+        # 9 anchor * 4 coordinate regressor each grids
         self.conv2 = nn.Conv2d(512, 4 * 9, kernel_size=1, stride=1)
         self.softmax = nn.Softmax()
 
     def forward(self, features):
+
         features = F.relu(self.conv(features))
 
         logits, rpn_bbox_pred = self.conv1(features), self.conv2(features)
-        # torch.Size([1, 18, 14, 14]) torch.Size([1, 36, 14, 14])
-        # print(logits.size(), rpn_bbox_pred.size())
 
         logits = logits.view(
-            (-1, 2, 9 * features.size()[2] * features.size()[3]))  # (1, 18, 14, 14) => (1, 2, 9  * 14 * 14)
-        logits = logits.permute(0, 2, 1)  # (1, 2, 9 * 14 * 14) => (1, 9 * 14 * 14 , 2)
+            (-1, 2, 9 * features.size()[2] * features.size()[3]))  # (1, 18, H/16, W/16) => (1, 2, 9  * H/16 * W/16)
+        logits = logits.permute(0, 2, 1)  # (1, 2, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16 , 2)
         rpn_cls_prob = self.softmax(logits.squeeze())
 
 
-        rpn_cls_prob = rpn_cls_prob.unsqueeze(0)  # (9 * 14 * 14 , 2)  => (1, 9 * 14 * 14 , 2)
-        rpn_cls_prob = rpn_cls_prob.permute(0, 2, 1).contiguous()  # (1, 9 * 14 * 14 , 2) => (1, 2, 9 * 14 * 14)
+        rpn_cls_prob = rpn_cls_prob.unsqueeze(0)  # (9 * H/16 * W/16 , 2)  => (1, 9 * H/16 * W/16 , 2)
+        rpn_cls_prob = rpn_cls_prob.permute(0, 2, 1).contiguous()  # (1, 9 * H/16 * W/16, 2) => (1, 2, 9 * H/16 * W/16)
         rpn_cls_prob = rpn_cls_prob.view(
-            (-1, 18, features.size()[2], features.size()[3]))  # (1, 2, 9 * 14 * 14) => (1, 18, 14, 14)
+            (-1, 18, features.size()[2], features.size()[3]))  # (1, 2, 9 * H/16 * W/16) => (1, 18, H/16, W/16)
 
         return rpn_bbox_pred, rpn_cls_prob
 
 
 class ROIpooling(nn.Module):
+
     def __init__(self, size=(7, 7), spatial_scale=1.0 / 16.0):
         super(ROIpooling, self).__init__()
         self.adapmax2d = nn.AdaptiveMaxPool2d(size)
@@ -97,12 +100,17 @@ class ROIpooling(nn.Module):
 
 
 class FasterRcnn(nn.Module):
+
     def __init__(self):
         super(FasterRcnn, self).__init__()
         self.fc1 = nn.Linear(512 * 7 * 7, 4096)
         self.fc2 = nn.Linear(4096, 4096)
+
+        # 20 class + 1 backround classfier each roi
         self.classfier = nn.Linear(4096, 21)
         self.softmax = nn.Softmax()
+
+        # 21 class * 4 coordinate regressor each roi
         self.regressor = nn.Linear(4096, 21 * 4)
 
     def forward(self, features):

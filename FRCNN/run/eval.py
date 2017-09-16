@@ -36,7 +36,7 @@ def eval(args):
         path =  "." + args.result_dir + name_param
 
 
-    _devkit_path = args.input_dir + "/VOCdevkit"
+    _devkit_path = args.input_dir + "/test/VOCdevkit"
     annopath = os.path.join(
         _devkit_path,
         'VOC2007',
@@ -47,7 +47,7 @@ def eval(args):
         'VOC2007',
         'ImageSets',
         'Main',
-        'val.txt')
+        'test.txt')
 
     cachedir = os.path.join(path, 'annotations_cache')
     aps = []

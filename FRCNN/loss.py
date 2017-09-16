@@ -15,18 +15,18 @@ def rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets):
     if isinstance(bbox_targets, np.ndarray):
         bbox_targets = torch.from_numpy(bbox_targets)
 
-    # rpn_cls_prob : torch.Size([1, 18, 14, 14])
-    # rpn_bbox_pred : torch.Size([1, 36, 14, 14])
-    # labels : numpy.ndarray  (1764,)
-    # bbox_targets : numpy.ndarray  (1764, 4)
+    # rpn_cls_prob : torch.Size([1, 18, H/16, W/16])
+    # rpn_bbox_pred : torch.Size([1, 36, H/16, 2/16])
+    # labels : numpy.ndarray  (H/16 * W/16,)
+    # bbox_targets : numpy.ndarray  (H/16 * W/16, 4)
 
     height, width = rpn_cls_prob.size()[-2:]  # 14, 14
 
-    # (1, 18, 14, 14) => (9, 2, 14, 14) => (9, 14, 14, 2) => (9 * 14 * 14, 2)
+    # (1, 18, H/16, W/16) => (9, 2, H/16, W/16) => (9, H/16, W/16, 2) => (9 * H/16 * W/16, 2)
     rpn_cls_prob = rpn_cls_prob.view(-1, 2, height, width).permute(0, 2, 3, 1).contiguous().view(-1, 2)
 
     labels = labels.long()  # convert properly
-    # (1764,) => (1, 14 , 14 , 9) => (1, 9, 14, 14) => (1764, )
+    # (H/16 * W/16) => (1, H/16, W/16, 9) => (1, 9, H/16, W/16) => (H/16 * W/16, )
     labels = labels.view(1, height, width, -1).permute(0, 3, 1, 2).contiguous()
     labels = labels.view(-1)
 
@@ -36,7 +36,7 @@ def rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets):
     labels = labels.index_select(0, idx)
     labels = to_var(labels, requires_grad=False)
 
-    # (1764, 4) => (1, 14, 14, 36) => (1, 36, 14, 14)
+    # (H/16 * W/16, 4) => (1, H/16, W/16, 36) => (1, 36, H/16, W/16)
     rpn_bbox_targets = bbox_targets
     rpn_bbox_targets = rpn_bbox_targets.view(1, height, width, -1).permute(0, 3, 1, 2)
     rpn_bbox_targets = to_var(rpn_bbox_targets, requires_grad=False)
@@ -67,17 +67,15 @@ def frcnn_loss(scores, bbox_pred, labels, bbox_targets):
     labels = labels.long()
     bbox_targets = to_var(bbox_targets)
 
-    # print(bbox_targets)
 
     cls_crit = nn.NLLLoss()
     log_scores = torch.log(scores)
     cls_loss = cls_crit(log_scores, labels)
 
-    # print(log_scores.size(), labels.size())
 
     reg_crit = nn.SmoothL1Loss()
     reg_loss = reg_crit(bbox_pred, bbox_targets)
-    # print(log_scores.size(), labels.size(), bbox_pred.size(), bbox_targets.size())
+
 
     return cls_loss, reg_loss
 

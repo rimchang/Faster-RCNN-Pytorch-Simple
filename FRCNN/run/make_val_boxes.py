@@ -179,6 +179,8 @@ def make_val_boxes(args):
             proposals_boxes, scores = proplayer.proposal(rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, image_info, test=True, args=args)
 
 
+            # traning 시에 gt box를 포함하여 loss를 계산하기 때문에
+            # train, test 때의 정확한 비교를 위해서 두 경우 모두 gt_box를 포함한 loss를 계산한다.
 
             # ============= Get Targets for compute loss =================#
 
@@ -202,6 +204,8 @@ def make_val_boxes(args):
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
             total_loss =  rpnloss + frcnnloss
 
+            """
+            # test time에는 gt_box에 대한 정보를 제외하여 target을 계산하고 forward 연산을 진행한다.
             # ============= Get Targets for test =================#
 
             rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
@@ -216,7 +220,7 @@ def make_val_boxes(args):
             rois_features = roipool(features, roi_boxes)
             bbox_pred, cls_score = fasterrcnn(rois_features)
 
-
+            """
             """
 
             don't need to compute gradient and update in test time
@@ -351,7 +355,7 @@ def make_val_boxes(args):
                 obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
                 gt_img = img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
 
-                fig = plt.figure(figsize=(15, 30))  # width 2700 height 900
+                fig = plt.figure(figsize=(15, 30))  # height 3000 width 1500
                 plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, hspace=0.02)
 
                 for i, img in enumerate([proposal_img, obj_img, gt_img]):
