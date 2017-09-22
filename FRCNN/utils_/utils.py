@@ -123,15 +123,14 @@ def proposal_img_get(img_np, boxes_np=None, labels_np=None, score=" ", show=True
 
     if boxes_np is not None:
 
-        for i in range(len(boxes_np)):
+        for i, idx in enumerate(sorted_indices):
 
-            where_argmax = np.where(sorted_indices == i)[0][0]
-            intensity = int(where_argmax / len(sorted_indices) * 255)
+            intensity = int(i / len(sorted_indices) * 255)
 
             # 명도가 높을 수록... 더 score가 높은 box RPN 결과 시각화를 위해!
             color = (intensity, intensity, intensity, 128)
 
-            draw.rectangle(boxes_np[i], outline=color)
+            draw.rectangle(boxes_np[idx], outline=color)
 
     if show:
         img.show()

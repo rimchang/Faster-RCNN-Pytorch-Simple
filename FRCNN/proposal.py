@@ -39,11 +39,14 @@ class ProposalLayer:
 
         # 1. Convert anchors into proposal via bbox transformation
         proposals_boxes = bbox_transform_inv(all_anchors_boxes, bbox_deltas)  # (H/16 * W/16, 4) all proposal boxes
+        pos_score = self._get_pos_score(rpn_cls_prob).data.cpu().numpy()
 
-        # only keep anchors inside the image
 
         height, width = im_info[0:2]
 
+
+        # if test==True, keep anchors inside the image
+        # if test==False, delete anchors inside the image
         if test == False:
             _allowed_border = 0
             inds_inside = np.where(
@@ -53,8 +56,11 @@ class ProposalLayer:
                 (all_anchors_boxes[:, 3] < height + _allowed_border)  # height
             )[0]
 
+            mask = np.zeros(proposals_boxes.shape[0], dtype=bool)
+            mask[inds_inside] = True
 
-
+            proposals_boxes = proposals_boxes[mask]
+            pos_score = pos_score[mask]
 
         # 2. clip proposal boxes to image
         proposals_boxes = clip_boxes(proposals_boxes, im_info[0:2])
@@ -63,20 +69,14 @@ class ProposalLayer:
         # (NOTE: convert min_size to input image scale stored in im_info[3])
         filter_indices = filter_boxes(proposals_boxes, self.args.min_size * max(im_info[3]))
 
+        # delete filter_indices
+        mask = np.zeros(proposals_boxes.shape[0], dtype=bool)
+        mask[filter_indices] = True
+
+        proposals_boxes = proposals_boxes[mask]
+        pos_score = pos_score[mask]
+
         # 4. sort all (proposal, score) pairs by score from highest to lowest
-        pos_score = self._get_pos_score(rpn_cls_prob).data.cpu().numpy()
-
-        if test == False:
-            mask = np.ones(proposals_boxes.shape[0], dtype=bool)
-            mask[inds_inside] = False
-            pos_score[mask] = 0.0
-
-
-        # mask filter_indices False so other index score assign 0
-        mask = np.ones(proposals_boxes.shape[0], dtype=bool)
-        mask[filter_indices] = False
-        pos_score[mask] = -1.0
-
         indices = np.argsort(pos_score.squeeze())[::-1] # descent order
 
 
@@ -85,7 +85,6 @@ class ProposalLayer:
 
 
         # 6. apply nms (e.g. threshold = 0.7)
-
         # proposals_boxes_c : [x, y, x`, y`, class]
         proposals_boxes_c = np.hstack((proposals_boxes[topn_indices], pos_score[topn_indices]))
         keep = py_cpu_nms(proposals_boxes_c, nms_thresh)

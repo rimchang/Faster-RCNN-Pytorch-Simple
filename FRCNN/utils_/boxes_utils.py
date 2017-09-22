@@ -100,7 +100,6 @@ def bbox_transform(boxes, gt_boxes):
     # t_w* = log(w*/w_a)
     # t_h* = log(h*/h_a)
 
-
     targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
     targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
     targets_dw = np.log(gt_widths / ex_widths)
@@ -201,7 +200,7 @@ def filter_boxes(boxes, min_size):
 
 def py_cpu_nms(proposals_boxes_c, thresh):
     """Pure Python NMS baseline."""
-    # proposals_boxes_c (? , 5)[class, x, y, x`, y`]
+    # proposals_boxes_c (? , 5)[x, y, x`, y`,score]
     scores = proposals_boxes_c[:, -1]
     x1 = proposals_boxes_c[:, 0]
     y1 = proposals_boxes_c[:, 1]
@@ -231,3 +230,78 @@ def py_cpu_nms(proposals_boxes_c, thresh):
 
     return keep
 
+from PIL import Image
+import collections
+
+class RandomHorizontalFlip(object):
+    """Horizontally flip the given PIL.Image randomly with a probability of 0.5."""
+
+    def __init__(self, random_number):
+        self.random_number = random_number
+
+
+    def __call__(self, img):
+        """
+        Args:
+            img (PIL.Image): Image to be flipped.
+        Returns:
+            PIL.Image: Randomly flipped image.
+        """
+        if self.random_number < 0.5:
+            return img.transpose(Image.FLIP_LEFT_RIGHT)
+        return img
+
+
+class Maxsizescale(object):
+    """Rescale the input PIL.Image to the given size.
+    Args:
+        size (sequence or int): Desired output size. If size is a sequence like
+            (h, w), output size will be matched to this. If size is an int,
+            smaller edge of the image will be matched to this number.
+            i.e, if height > width, then image will be rescaled to
+            (size * height / width, size)
+        interpolation (int, optional): Desired interpolation. Default is
+            ``PIL.Image.BILINEAR``
+    """
+
+    def __init__(self, size, maxsize, interpolation=Image.BILINEAR):
+        assert isinstance(size, int) or (isinstance(size, collections.Iterable) and len(size) == 2)
+        self.size = size
+        self.maxsize = maxsize
+        self.interpolation = interpolation
+
+    def __call__(self, img):
+        """
+        Args:
+            img (PIL.Image): Image to be scaled.
+        Returns:
+            PIL.Image: Rescaled image.
+        """
+        if isinstance(self.size, int):
+            w, h = img.size
+            if (w <= h and w == self.size and h <= self.maxsize) or (h <= w and h == self.size and w <= self.maxsize):
+                return img
+            if w < h:
+                ow = self.size
+                oh = int(self.size * h / w)
+
+                if oh <= self.maxsize:
+                    return img.resize((ow, oh), self.interpolation)
+                else:
+                    oh = self.maxsize
+                    ow = int(self.size * w / h)
+
+                    return img.resize((ow, oh), self.interpolation)
+            else:
+                oh = self.size
+                ow = int(self.size * w / h)
+
+                if ow <= self.maxsize:
+                    return img.resize((ow, oh), self.interpolation)
+                else:
+                    ow = self.maxsize
+                    oh = int(self.size * h / w)
+                    return img.resize((ow, oh), self.interpolation)
+
+        else:
+            raise Exception("size is not int")

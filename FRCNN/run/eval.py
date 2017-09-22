@@ -8,7 +8,7 @@ from utils_.utils import make_name_string
 
 
 
-def eval(args):
+def evaluation(args):
 
     hyparam_list = [("model", args.model_name),
                     ("train", (args.pre_nms_topn, args.nms_thresh, args.post_nms_topn)),

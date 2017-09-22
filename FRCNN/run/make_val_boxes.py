@@ -7,6 +7,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 import pickle
+import tensorflow as tf
 
 from data.voc_data import VOCDetection, detection_collate, AnnotationTransform, VOC_CLASSES
 from utils_.utils import make_name_string
@@ -16,7 +17,7 @@ from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
 from loss import rpn_loss, frcnn_loss
 from utils_.utils import img_get, obj_img_get, proposal_img_get, read_pickle
-from utils_.boxes_utils import py_cpu_nms, bbox_transform_inv, clip_boxes
+from utils_.boxes_utils import py_cpu_nms, bbox_transform_inv, clip_boxes, Maxsizescale
 
 
 def make_val_boxes(args):
@@ -41,7 +42,7 @@ def make_val_boxes(args):
 
     # for using tensorboard
     if args.use_tensorboard:
-        import tensorflow as tf
+
 
         summary_writer = tf.summary.FileWriter(args.output_dir + args.log_dir + name_param+"_val")
 
@@ -89,9 +90,11 @@ def make_val_boxes(args):
 
     # fine tuning after conv3_1
     if args.ft_conv3:
-        for module in list(list(feature_extractor.children())[0].children())[:17]:
+        for module in list(list(feature_extractor.children())[0].children())[:10]:
             for param in module.parameters():
                 param.requires_grad = False
+
+    print("fix weight",list(list(feature_extractor.children())[0].children())[:10])
 
     solver = optim.SGD([
                             {'params': filter(lambda p: p.requires_grad, feature_extractor.parameters()), 'lr': args.ft_lr},
@@ -119,6 +122,11 @@ def make_val_boxes(args):
         roipool.cuda()
         fasterrcnn.cuda()
 
+    feature_extractor.eval()
+    rpn.eval()
+    roipool.eval()
+    fasterrcnn.eval()
+
     for epoch in range(1):
 
         epoch = solver.param_groups[0]['epoch']
@@ -140,7 +148,7 @@ def make_val_boxes(args):
 
             im_transform = transforms.Compose([
                 transforms.ToPILImage(),
-                transforms.Scale(600),
+                Maxsizescale(600, maxsize=1000),
                 transforms.ToTensor(),
                 transforms.Normalize((0.485, 0.456, 0.406),
                                      (0.229, 0.224, 0.225)),
@@ -182,45 +190,45 @@ def make_val_boxes(args):
             # traning 시에 gt box를 포함하여 loss를 계산하기 때문에
             # train, test 때의 정확한 비교를 위해서 두 경우 모두 gt_box를 포함한 loss를 계산한다.
 
-            # ============= Get Targets for compute loss =================#
+            # ============= Get Targets for cumpute loss =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
             if roi_boxes.shape[0] == 0:
                 continue
 
-            # ============= frcnn for compute loss ========================#
+            # ============= frcnn  for compute loss========================#
 
             rois_features = roipool(features, roi_boxes)
             bbox_pred, cls_score = fasterrcnn(rois_features)
 
             # ============= Compute loss =================#
 
-            rpn_cls_loss, rpn_reg_loss = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets)
-            frcnn_cls_loss, frcnn_reg_loss = frcnn_loss(cls_score, bbox_pred, frcnn_labels, frcnn_bbox_targets)
+            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets,
+                                                           rpn_bbox_inside_weights)
+            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(cls_score, bbox_pred, frcnn_labels,
+                                                                   frcnn_bbox_targets, frcnn_bbox_inside_weights)
 
             rpnloss = rpn_cls_loss + rpn_reg_loss
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
-            total_loss =  rpnloss + frcnnloss
+            total_loss = rpnloss + frcnnloss
 
-            """
             # test time에는 gt_box에 대한 정보를 제외하여 target을 계산하고 forward 연산을 진행한다.
             # ============= Get Targets for test =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=True, args=args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=True, args=args)
 
             if roi_boxes.shape[0] == 0:
                 continue
-
 
             # ============= frcnn for test ========================#
 
             rois_features = roipool(features, roi_boxes)
             bbox_pred, cls_score = fasterrcnn(rois_features)
 
-            """
+
             """
 
             don't need to compute gradient and update in test time
@@ -234,58 +242,71 @@ def make_val_boxes(args):
             #print("one batch training time : {:.2f}".format(pc() - t0))
             """
 
-            proposal_log = (proposals_boxes.shape[0], frcnn_labels.shape[0])
+
 
 
             time = float(pc() - t0)
             # =============== logging each iteration ===============#
 
+            if (iteration) % args.log_step == 0:
+                if args.use_tensorboard:
+                    log_save_path = args.output_dir + args.log_dir + name_param + "_val"
+                    if not os.path.exists(log_save_path):
+                        os.makedirs(log_save_path)
 
-            if args.use_tensorboard:
-                log_save_path = args.output_dir + args.log_dir + name_param + "_val"
-                if not os.path.exists(log_save_path):
-                    os.makedirs(log_save_path)
+                    info = {
+                        'loss/rpn_cls_loss': rpn_cls_loss.data[0],
+                        'loss/rpn_reg_loss': rpn_reg_loss.data[0],
+                        'loss/rpn_loss': rpnloss.data[0],
+                        'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
+                        'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
+                        'loss/frcnn_loss': frcnnloss.data[0],
+                        'loss/total_loss': total_loss.data[0],
+                        'etc/rpn_proposal_size': proposals_boxes.shape[0],
+                        'etc/rpn_fg_boxes_size': rpn_log[0],
+                        'etc/rpn_bg_boxes_size': rpn_log[1],
+                        'etc/rpn_TP': rpn_log[2] / rpn_log[0] * 100,
+                        'etc/rpn_TN': rpn_log[3] / rpn_log[1] * 100,
+                        'etc/frccn_fg_boxes_size': frcnn_log[0],
+                        'etc/frccn_bg_boxes_size': frcnn_log[1],
+                        'etc/frccn_TP': frcnn_log[2] / frcnn_log[0] * 100,
+                        'etc/frccn_TN': frcnn_log[3] / frcnn_log[1] * 100,
 
-                info = {
-                    'loss/rpn_cls_loss': rpn_cls_loss.data[0],
-                    'loss/rpn_reg_loss': rpn_reg_loss.data[0],
-                    'loss/rpn_loss': rpnloss.data[0],
-                    'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
-                    'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
-                    'loss/frcnn_loss': frcnnloss.data[0],
-                    'loss/total_loss': total_loss.data[0],
-                    'etc/rpn_proposal_size': proposal_log[0],
-                    'etc/rpn_fg_boxes_size': rpn_log[0],
-                    'etc/frcnn_proposal_size': proposal_log[1],
-                    'etc/frccn_fg_boxes_size': frcnn_log[0],
-                    'etc/frccn_bg_boxes_size': frcnn_log[1],
+                    }
 
-                }
+                    for tag, value in info.items():
+                        inject_summary(summary_writer, tag, value, iteration)
 
-                for tag, value in info.items():
-                    inject_summary(summary_writer, tag, value, iteration)
-
-                summary_writer.flush()
+                    summary_writer.flush()
 
 
-            # TODO average loss, average tiem
-            print(
-                'VAL-Epoch : {}, Iter-{} , rpn_loss : {:.4f}, frcnn_loss : {:.4f}, total_loss : {:.4f}, boxes_log : {} {} {} {} {} {}, lr : {:.4f}, time : {:.4f}'
+                print('VAL-Epoch : {}, Iter-{} , rpn_loss : {:.4f}, frcnn_loss : {:.4f}, total_loss : {:.4f}, lr : {:.4f}, time : {:.4f}'
                     .format(
-                    epoch,
-                    iteration,
-                    rpnloss.data[0],
-                    frcnnloss.data[0],
-                    total_loss.data[0],
-                    proposal_log[0],
-                    rpn_log[0],
-                    proposal_log[1],
-                    frcnn_log[0],
-                    frcnn_log[1],
-                    gt_boxes_c.shape[0],
-                    solver.state_dict()['param_groups'][0]["lr"],
-                    time)
-            )
+                        epoch,
+                        iteration,
+                        rpnloss.data[0],
+                        frcnnloss.data[0],
+                        total_loss.data[0],
+                        solver.state_dict()['param_groups'][0]["lr"],
+                        time)
+                    , end=" ,"
+                    )
+
+                print("RPN : {} {} {} {:.2f} {:.2f}, FRCNN : {} {} {} {:.2f} {:.2f}, gt {}"
+                      .format(
+                        proposals_boxes.shape[0],
+                        rpn_log[0],
+                        rpn_log[1],
+                        rpn_log[2] / rpn_log[0] * 100,
+                        rpn_log[3] / rpn_log[1] * 100,
+                        frcnn_log[0] + frcnn_log[1],
+                        frcnn_log[0],
+                        frcnn_log[1],
+                        frcnn_log[2] / frcnn_log[0] * 100,
+                        frcnn_log[3] / frcnn_log[1] * 100,
+                        gt_boxes_c.shape[0])
+
+                    )
 
             # =========== collect boxes each iteration ============#
 

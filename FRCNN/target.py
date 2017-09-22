@@ -7,7 +7,7 @@ from utils_.boxes_utils import bbox_overlaps, bbox_transform, _unmap
 # rpn targets
 def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
 
-    # it maybe feature width * height * 9
+    # it maybe H/16 * W/16 * 9
     num_anchors = all_anchors_boxes.shape[0]
 
     # im : (1, C, H, W)
@@ -74,14 +74,17 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     # transform boxes to deltas boxes
     bbox_targets = bbox_transform(inside_anchors_boxes, gt_boxes_c[argmax_overlaps, :-1])
 
+    # loss 계산시 positive box mask를 위한 배열
+    bbox_inside_weights = np.zeros((bbox_targets.shape[0], 4), dtype=np.float32)
+    bbox_inside_weights[labels == 1, :] = [1, 1, 1, 1]
+
     # map up to original set of anchors
     # inds_inside 는 data로 채우고 나머지는 fill의 값으로 채움. 즉 backround인 box의 target을 채워준다.
     labels = _unmap(labels, num_anchors, inds_inside, fill=-1)
     bbox_targets = _unmap(bbox_targets, num_anchors, inds_inside, fill=0)
+    bbox_inside_weights = _unmap(bbox_inside_weights, num_anchors, inds_inside, fill=0)
 
-    log = [len(fg_inds)]
-
-    return labels, bbox_targets, log
+    return labels, bbox_targets, bbox_inside_weights
 
 
 
@@ -166,6 +169,9 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
     # delta_boxes 을 84 차원의 target으로 만들어준다. faster_rcnn regressor의 아웃풋이 84
     targets = np.zeros((len(labels), 4 * 21), dtype=np.float32)
 
+    # loss 계산시 foreground mask를 위한 배열
+    bbox_inside_weights = np.zeros(targets.shape, dtype=np.float32)
+
     # foreground object index
     indices = np.where(labels > 0)[0]
 
@@ -174,10 +180,10 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
         start = 4 * cls
         end = start + 4
         targets[index, start:end] = delta_boxes[index, :]
+        bbox_inside_weights[index, start:end] = [1, 1, 1, 1]
 
 
-    log = [fg_rois_per_this_image, bg_rois_per_this_image]
 
-    return labels, roi_boxes_c[:, :-1], targets ,log
+    return labels, roi_boxes_c[:, :-1], targets , bbox_inside_weights
 
 

@@ -3,11 +3,13 @@ from time import perf_counter as pc
 
 import matplotlib
 import torch.optim as optim
+from torch.nn.utils import clip_grad_norm
 from torchvision import transforms
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+import random
+import tensorflow as tf
 
 from data.voc_data import VOCDetection, detection_collate, AnnotationTransform
 from utils_.utils import make_name_string
@@ -18,6 +20,7 @@ from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
 from loss import rpn_loss, frcnn_loss
 from utils_.utils import img_get, obj_img_get, proposal_img_get, save_pickle, read_pickle
+from utils_.boxes_utils import RandomHorizontalFlip, Maxsizescale
 
 
 def train(args):
@@ -89,10 +92,11 @@ def train(args):
 
     # fine tuning after conv3_1
     if args.ft_conv3:
-        for module in list(list(feature_extractor.children())[0].children())[:17]:
+        for module in list(list(feature_extractor.children())[0].children())[:10]:
             for param in module.parameters():
                 param.requires_grad = False
 
+    print("fix weight",list(list(feature_extractor.children())[0].children())[:10])
 
     # initialization new layer weight N(0, 0.01)
     if args.init_gaussian:
@@ -132,6 +136,11 @@ def train(args):
         roipool.cuda()
         fasterrcnn.cuda()
 
+    feature_extractor.train()
+    rpn.train()
+    roipool.train()
+    fasterrcnn.train()
+
     for epoch in range(args.n_epochs):
 
         solver.param_groups[0]['epoch'] += 1
@@ -150,7 +159,7 @@ def train(args):
             image = image_
             old_image_info = (image.size()[2], image.size()[3], image.size()[1]) # (H, W, C)
 
-
+            """
             im_transform = transforms.Compose([
                 transforms.ToPILImage(),
                 transforms.Scale(600),
@@ -158,7 +167,29 @@ def train(args):
                 transforms.Normalize((0.485, 0.456, 0.406),
                                      (0.229, 0.224, 0.225)),
             ])
+            """
 
+            random_number = random.random()
+
+            if random_number < 0.5:
+
+                # flip x, x1
+                x1 = gt_boxes_c[:, 0].clone()
+                x2 = gt_boxes_c[:, 2].clone()
+
+                gt_boxes_c[:, 0] = (old_image_info[1] - 1) - x2
+                gt_boxes_c[:, 2] = (old_image_info[1] - 1) - x1
+
+
+
+            im_transform = transforms.Compose([
+                transforms.ToPILImage(),
+                Maxsizescale(600, maxsize=1000),
+                RandomHorizontalFlip(random_number),
+                transforms.ToTensor(),
+                transforms.Normalize((0.485, 0.456, 0.406),
+                                     (0.229, 0.224, 0.225)),
+            ])
 
             image = im_transform(image.squeeze())
             image = image.unsqueeze(0)
@@ -179,11 +210,12 @@ def train(args):
 
             gt_boxes_c = gt_boxes_c.numpy()
 
+
             image = to_var(image)
 
             t0 = pc()
             features = feature_extractor.forward(image)
-            rpn_bbox_pred, rpn_cls_prob = rpn(features)
+            rpn_bbox_pred, rpn_cls_prob, rpn_logits = rpn(features)
 
 
             # ============= region proposal =============#
@@ -193,26 +225,25 @@ def train(args):
 
             # ============= Get Targets =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_log = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_log = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
+            if roi_boxes.shape[0] == 0:
+                continue
 
             # ============= frcnn ========================#
 
             rois_features = roipool(features, roi_boxes)
-            bbox_pred, cls_score = fasterrcnn(rois_features)
+            bbox_pred, cls_score, frcnn_logits = fasterrcnn(rois_features)
 
             # ============= Compute loss =================#
 
-            rpn_cls_loss, rpn_reg_loss = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets)
-            frcnn_cls_loss, frcnn_reg_loss = frcnn_loss(cls_score, bbox_pred, frcnn_labels, frcnn_bbox_targets)
+            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights ,rpn_logits)
+            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(cls_score, bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights, frcnn_logits)
 
             rpnloss = rpn_cls_loss + rpn_reg_loss
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
             total_loss =  rpnloss + frcnnloss
-
-            # print(total_loss)
-
 
 
             # ============= Update =======================#
@@ -220,11 +251,8 @@ def train(args):
             solver.zero_grad()
             total_loss.backward()
 
+            tot_norm = clip_grad_norm(model.parameters(), 10.)
             solver.step()
-            #print("one batch training time : {:.2f}".format(pc() - t0))
-
-
-            proposal_log = (proposals_boxes.shape[0], frcnn_labels.shape[0])
 
 
             time = float(pc() - t0)
@@ -232,51 +260,70 @@ def train(args):
 
             # =============== logging each iteration ===============#
 
+            if (iteration) % args.log_step == 0:
 
-            if args.use_tensorboard:
-                log_save_path = args.output_dir + args.log_dir + name_param
-                if not os.path.exists(log_save_path):
-                    os.makedirs(log_save_path)
+                if args.use_tensorboard:
+                    log_save_path = args.output_dir + args.log_dir + name_param
+                    if not os.path.exists(log_save_path):
+                        os.makedirs(log_save_path)
 
-                info = {
-                    'loss/rpn_cls_loss': rpn_cls_loss.data[0],
-                    'loss/rpn_reg_loss': rpn_reg_loss.data[0],
-                    'loss/rpn_loss': rpnloss.data[0],
-                    'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
-                    'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
-                    'loss/frcnn_loss': frcnnloss.data[0],
-                    'loss/total_loss': total_loss.data[0],
-                    'etc/rpn_proposal_size': proposal_log[0],
-                    'etc/rpn_fg_boxes_size': rpn_log[0],
-                    'etc/frcnn_proposal_size': proposal_log[1],
-                    'etc/frccn_fg_boxes_size': frcnn_log[0],
-                    'etc/frccn_bg_boxes_size': frcnn_log[1],
+                    info = {
+                        'loss/rpn_cls_loss': rpn_cls_loss.data[0],
+                        'loss/rpn_reg_loss': rpn_reg_loss.data[0],
+                        'loss/rpn_loss': rpnloss.data[0],
+                        'loss/frcnn_cls_loss': frcnn_cls_loss.data[0],
+                        'loss/frcnn_reg_loss': frcnn_reg_loss.data[0],
+                        'loss/frcnn_loss': frcnnloss.data[0],
+                        'loss/total_loss': total_loss.data[0],
+                        'etc/tot_norm': tot_norm,
+                        'etc/rpn_proposal_size': proposals_boxes.shape[0],
+                        'etc/rpn_fg_boxes_size': rpn_log[0],
+                        'etc/rpn_bg_boxes_size': rpn_log[1],
+                        'etc/rpn_TP': rpn_log[2]/rpn_log[0]*100,
+                        'etc/rpn_TN': rpn_log[3]/rpn_log[1]*100,
+                        'etc/frccn_fg_boxes_size': frcnn_log[0],
+                        'etc/frccn_bg_boxes_size': frcnn_log[1],
+                        'etc/frccn_TP': frcnn_log[2]/frcnn_log[0]*100,
+                        'etc/frccn_TN': frcnn_log[3]/frcnn_log[1]*100,
 
-                }
+                    }
 
-                for tag, value in info.items():
-                    inject_summary(summary_writer, tag, value, iteration)
+                    for tag, value in info.items():
+                        inject_summary(summary_writer, tag, value, iteration)
 
-                summary_writer.flush()
+                    summary_writer.flush()
 
-            # TODO average loss, average tiem
-            print('Epoch : {}, Iter-{} , rpn_loss : {:.4f}, frcnn_loss : {:.4f}, total_loss : {:.4f}, boxes_log : {} {} {} {} {} {}, lr : {:.4f}, time : {:.4f}'
-                .format(
+
+
+                print('Epoch : {}, Iter-{} , rpn_loss : {:.4f}, frcnn_loss : {:.4f}, total_loss : {:.4f}, lr : {:.4f}, time : {:.4f}'
+                    .format(
                     epoch,
                     iteration,
                     rpnloss.data[0],
                     frcnnloss.data[0],
                     total_loss.data[0],
-                    proposal_log[0],
-                    rpn_log[0],
-                    proposal_log[1],
-                    frcnn_log[0],
-                    frcnn_log[1],
-                    gt_boxes_c.shape[0],
                     solver.state_dict()['param_groups'][0]["lr"],
                     time)
+                    , end=" ,"
+                )
+
+                print("RPN : {} {} {} {:.2f} {:.2f}, FRCNN : {} {} {} {:.2f} {:.2f}, gt {}"
+                    .format(
+                    proposals_boxes.shape[0],
+                    rpn_log[0],
+                    rpn_log[1],
+                    rpn_log[2] / rpn_log[0] * 100,
+                    rpn_log[3] / rpn_log[1] * 100,
+                    frcnn_log[0] + frcnn_log[1],
+                    frcnn_log[0],
+                    frcnn_log[1],
+                    frcnn_log[2] / frcnn_log[0] * 100,
+                    frcnn_log[3] / frcnn_log[1] * 100,
+                    gt_boxes_c.shape[0])
+
                 )
             # =========== visualization img with object ============#
+
 
             if (iteration) % args.image_save_step == 0:
 
@@ -318,12 +365,13 @@ def train(args):
 
         # =============== each epoch save model or save image ===============#
 
+        adjust_learning_rate(solver, epoch)
 
         if (epoch) % args.pickle_step == 0:
             path = args.output_dir + args.pickle_dir + name_param
             save_pickle(path, epoch, model, solver)
             print("save model, optim")
 
-        adjust_learning_rate(solver, epoch)
+
 
 

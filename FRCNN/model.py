@@ -28,13 +28,13 @@ class CNN(nn.Module):
 
 
 
-
 class RPN(nn.Module):
 
     def __init__(self):
         super(RPN, self).__init__()
 
-        self.conv = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=(1, 1))
+        self.conv = nn.Sequential(nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=(1, 1)),
+                                            nn.ReLU())
 
         # 9 anchor * 2 classfier (object or non-object) each grid
         self.conv1 = nn.Conv2d(512, 2 * 9, kernel_size=1, stride=1)
@@ -45,22 +45,22 @@ class RPN(nn.Module):
 
     def forward(self, features):
 
-        features = F.relu(self.conv(features))
+        features = self.conv(features)
 
         logits, rpn_bbox_pred = self.conv1(features), self.conv2(features)
 
         logits = logits.view(
             (-1, 2, 9 * features.size()[2] * features.size()[3]))  # (1, 18, H/16, W/16) => (1, 2, 9  * H/16 * W/16)
         logits = logits.permute(0, 2, 1)  # (1, 2, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16 , 2)
+
+
         rpn_cls_prob = self.softmax(logits.squeeze())
-
-
         rpn_cls_prob = rpn_cls_prob.unsqueeze(0)  # (9 * H/16 * W/16 , 2)  => (1, 9 * H/16 * W/16 , 2)
         rpn_cls_prob = rpn_cls_prob.permute(0, 2, 1).contiguous()  # (1, 9 * H/16 * W/16, 2) => (1, 2, 9 * H/16 * W/16)
         rpn_cls_prob = rpn_cls_prob.view(
             (-1, 18, features.size()[2], features.size()[3]))  # (1, 2, 9 * H/16 * W/16) => (1, 18, H/16, W/16)
 
-        return rpn_bbox_pred, rpn_cls_prob
+        return rpn_bbox_pred, rpn_cls_prob, logits
 
 
 class ROIpooling(nn.Module):
@@ -103,8 +103,13 @@ class FasterRcnn(nn.Module):
 
     def __init__(self):
         super(FasterRcnn, self).__init__()
-        self.fc1 = nn.Linear(512 * 7 * 7, 4096)
-        self.fc2 = nn.Linear(4096, 4096)
+        self.fc1 = nn.Sequential(nn.Linear(512 * 7 * 7, 4096),
+                                 nn.ReLU(),
+                                 nn.Dropout())
+
+        self.fc2 = nn.Sequential(nn.Linear(4096, 4096),
+                                 nn.ReLU(),
+                                 nn.Dropout())
 
         # 20 class + 1 backround classfier each roi
         self.classfier = nn.Linear(4096, 21)
@@ -115,10 +120,10 @@ class FasterRcnn(nn.Module):
 
     def forward(self, features):
         features = features.view(-1, 512 * 7 * 7)
-        features = F.relu(self.fc1(features))
-        features = F.relu(self.fc2(features))
+        features = self.fc1(features)
+        features = self.fc2(features)
         logits = self.classfier(features)
 
-        return self.regressor(features), self.softmax(logits)
+        return self.regressor(features), self.softmax(logits), logits
 
 
