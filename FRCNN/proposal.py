@@ -26,7 +26,19 @@ class ProposalLayer:
 
     def proposal(self, rpn_bbox_pred, rpn_cls_prob, all_anchors_boxes, im_info, test, args):
         """
-        proposal operation in cpu
+        Arguments:
+            rpn_bbox_pred (Tensor) : (1, 4*9, H/16, W/16)
+            rpn_cls_prob (Tensor) : (1, 2*9, H/16, W/16)
+            all_anchors_boxes (Ndarray) : (9 * H/16 * W/16, 4) predicted boxes
+            im_info (Tuple) : (Height, Width, Channel, Scale)
+            test (Bool) : True or False
+            args (argparse.Namespace) : global arguments
+
+        Return:
+
+            # in each minibatch number of proposal boxes is variable
+            proposals_boxes (Ndarray) : ( # proposal boxes, 4)
+            scores (Ndarray) :  ( # proposal boxes, )
         """
 
         # if test == False, using training args else using testing args

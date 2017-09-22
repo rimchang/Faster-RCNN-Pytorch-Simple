@@ -5,13 +5,26 @@ from utils_.boxes_utils import bbox_overlaps, bbox_transform, _unmap
 
 
 # rpn targets
-def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
+def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
+    """
+    Arguments:
+        all_anchors_boxes (Tensor) : (H/16 * W/16 * 9, 4)
+        gt_boxes_c (Ndarray) : (# gt boxes, 5) [x, y, x`, y`, class]
+        im_info (Tuple) : (Height, Width, Channel, Scale)
+        args (argparse.Namespace) : global arguments
+
+    Return:
+        labels (Ndarray) : (H/16 * W/16 * 9,)
+        bbox_targets (Ndarray) : (H/16 * W/16 * 9, 4)
+        bbox_inside_weights (Ndarray) : (H/16 * W/16 * 9, 4)
+    """
+
 
     # it maybe H/16 * W/16 * 9
     num_anchors = all_anchors_boxes.shape[0]
 
-    # im : (1, C, H, W)
-    height, width = im.size()[-2:]
+    # im_info : (H, W, C, S)
+    height, width = im_info[:2]
     
     # only keep anchors inside the image
     _allowed_border = 0
@@ -84,12 +97,26 @@ def rpn_targets(all_anchors_boxes, im, gt_boxes_c, args):
     bbox_targets = _unmap(bbox_targets, num_anchors, inds_inside, fill=0)
     bbox_inside_weights = _unmap(bbox_inside_weights, num_anchors, inds_inside, fill=0)
 
+
     return labels, bbox_targets, bbox_inside_weights
 
 
 
 # faster-RCNN targets
 def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
+    """
+    Arguments:
+        prop_boxes (Tensor) : (# proposal boxes , 4)
+        gt_boxes_c (Ndarray) : (# gt boxes, 5) [x, y, x`, y`, class]
+        test (Bool) : True or False
+        args (argparse.Namespace) : global arguments
+
+    Return:
+        labels (Ndarray) : (256,)
+        roi_boxes_c[:, :-1] : (256, 4)
+        targets (Ndarray) : (256, 21 * 4)
+        bbox_inside_weights (Ndarray) : (256, 21 * 4)
+    """
 
     gt_labels = gt_boxes_c[:, -1]
     gt_boxes = gt_boxes_c[:, :-1]
@@ -181,7 +208,6 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
         end = start + 4
         targets[index, start:end] = delta_boxes[index, :]
         bbox_inside_weights[index, start:end] = [1, 1, 1, 1]
-
 
 
     return labels, roi_boxes_c[:, :-1], targets , bbox_inside_weights

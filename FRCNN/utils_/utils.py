@@ -10,11 +10,23 @@ from utils_.boxes_utils import clip_boxes, bbox_transform_inv, py_cpu_nms
 
 
 def to_var(x, *args, **kwargs):
+
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+
     if torch.cuda.is_available():
         x = Variable(x, *args, **kwargs).cuda()
     else:
         x = Variable(x, *args, **kwargs)
 
+    return x
+
+def to_tensor(x, *args, **kwargs):
+
+    if torch.cuda.is_available():
+        x = torch.from_numpy(x).cuda()
+    else:
+        x = torch.from_numpy(x)
     return x
 
 

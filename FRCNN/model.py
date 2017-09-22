@@ -51,10 +51,10 @@ class RPN(nn.Module):
 
         logits = logits.view(
             (-1, 2, 9 * features.size()[2] * features.size()[3]))  # (1, 18, H/16, W/16) => (1, 2, 9  * H/16 * W/16)
-        logits = logits.permute(0, 2, 1)  # (1, 2, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16 , 2)
+        logits = logits.permute(0, 2, 1).squeeze()  # (1, 2, 9 * H/16 * W/16) => (9 * H/16 * W/16 , 2)
 
 
-        rpn_cls_prob = self.softmax(logits.squeeze())
+        rpn_cls_prob = self.softmax(logits)
         rpn_cls_prob = rpn_cls_prob.unsqueeze(0)  # (9 * H/16 * W/16 , 2)  => (1, 9 * H/16 * W/16 , 2)
         rpn_cls_prob = rpn_cls_prob.permute(0, 2, 1).contiguous()  # (1, 9 * H/16 * W/16, 2) => (1, 2, 9 * H/16 * W/16)
         rpn_cls_prob = rpn_cls_prob.view(
@@ -122,7 +122,7 @@ class FasterRcnn(nn.Module):
         features = features.view(-1, 512 * 7 * 7)
         features = self.fc1(features)
         features = self.fc2(features)
-        logits = self.classfier(features)
+        logits = self.classfier(features).squeeze()
 
         return self.regressor(features), self.softmax(logits), logits
 

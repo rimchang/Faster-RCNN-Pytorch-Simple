@@ -31,7 +31,7 @@ if __name__ == '__main__':
     # other parameters
     parser.add_argument('--model_name', type=str, default="C3",
                         help='this model_name is used for naming directory name')
-    parser.add_argument('--train', type=str2bool, default=True,
+    parser.add_argument('--train', type=str2bool, default=False,
                         help='train')
     parser.add_argument('--make_val_boxes', type=str2bool, default=True,
                         help='if this True, excute make_val_boxes after training ')
@@ -108,6 +108,7 @@ if __name__ == '__main__':
                         help='initialize weight with gaussian N(0,0.01)')
     training.add_argument('--ft_conv3', type=str2bool, default=True,
                         help='fine tuning after conv3 in vggnet')
+
     # Model Parmeters
     training.add_argument('--n_epochs', type=float, default=4,
                         help='max epochs')
@@ -132,7 +133,7 @@ if __name__ == '__main__':
     # step parameter
     other.add_argument('--pickle_step', type=int, default=4,
                         help='pickle save at pickle_step epoch')
-    other.add_argument('--log_step', type=int, default=20,
+    other.add_argument('--log_step', type=int, default=1,
                         help='tensorboard log save and print log at log_step epoch')
     other.add_argument('--image_save_step', type=int, default=100,
                         help='output image save at image_save_step iteration')

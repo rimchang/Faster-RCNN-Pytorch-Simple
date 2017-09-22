@@ -178,7 +178,7 @@ def make_val_boxes(args):
 
             t0 = pc()
             features = feature_extractor.forward(image)
-            rpn_bbox_pred, rpn_cls_prob = rpn(features)
+            rpn_bbox_pred, rpn_cls_prob, rpn_logits = rpn(features)
 
 
             # ============= region proposal =============#
@@ -192,7 +192,7 @@ def make_val_boxes(args):
 
             # ============= Get Targets for cumpute loss =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, gt_boxes_c, image_info, args)
             frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
             if roi_boxes.shape[0] == 0:
@@ -201,23 +201,21 @@ def make_val_boxes(args):
             # ============= frcnn  for compute loss========================#
 
             rois_features = roipool(features, roi_boxes)
-            bbox_pred, cls_score = fasterrcnn(rois_features)
+            frcnn_bbox_pred, frcnn_cls_prob, frcnn_logits = fasterrcnn(rois_features)
 
             # ============= Compute loss =================#
 
-            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets,
-                                                           rpn_bbox_inside_weights)
-            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(cls_score, bbox_pred, frcnn_labels,
-                                                                   frcnn_bbox_targets, frcnn_bbox_inside_weights)
+            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights)
+            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights)
 
             rpnloss = rpn_cls_loss + rpn_reg_loss
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
-            total_loss = rpnloss + frcnnloss
+            total_loss =  rpnloss + frcnnloss
 
             # test time에는 gt_box에 대한 정보를 제외하여 target을 계산하고 forward 연산을 진행한다.
             # ============= Get Targets for test =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, gt_boxes_c, image_info, args)
             frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=True, args=args)
 
             if roi_boxes.shape[0] == 0:
@@ -226,7 +224,7 @@ def make_val_boxes(args):
             # ============= frcnn for test ========================#
 
             rois_features = roipool(features, roi_boxes)
-            bbox_pred, cls_score = fasterrcnn(rois_features)
+            frcnn_bbox_pred, frcnn_cls_prob, frcnn_logits = fasterrcnn(rois_features)
 
 
             """
@@ -312,18 +310,18 @@ def make_val_boxes(args):
 
             image_np = image.data.cpu().numpy()
             score_np = scores
-            cls_score_np = cls_score.data.cpu().numpy()
+            frcnn_cls_prob_np = frcnn_cls_prob.data.cpu().numpy()
             roi_boxes_np = np.array(roi_boxes)
-            bbox_pred_np = bbox_pred.data.cpu().numpy()
+            frcnn_bbox_pred_np = frcnn_bbox_pred.data.cpu().numpy()
 
 
 
             # skip j = 0, because it's the background class
             for j in range(1, len(VOC_CLASSES)):
 
-                indices = np.where(cls_score_np[:, j] > args.test_ob_thresh)[0]
-                j_cls_score = cls_score_np[indices, j]
-                j_bbox_pred = bbox_pred_np[indices, j*4:(j+1)*4]
+                indices = np.where(frcnn_cls_prob_np[:, j] > args.test_ob_thresh)[0]
+                j_cls_score = frcnn_cls_prob_np[indices, j]
+                j_bbox_pred = frcnn_bbox_pred_np[indices, j*4:(j+1)*4]
                 j_roi_boxes = roi_boxes_np[indices, :]
 
 
@@ -373,7 +371,7 @@ def make_val_boxes(args):
 
 
                 proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
-                obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
+                obj_img = obj_img_get(image_np, frcnn_cls_prob_np, frcnn_bbox_pred_np, roi_boxes_np, args, show=False)
                 gt_img = img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
 
                 fig = plt.figure(figsize=(15, 30))  # height 3000 width 1500

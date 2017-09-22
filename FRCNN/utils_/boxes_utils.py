@@ -1,12 +1,17 @@
 import torch
 import numpy as np
 
+
+
 # torch tensors
 def bbox_overlaps(boxes, gt_boxes):
+
+    from .utils import to_tensor # this is for circular dependent imports
+
     if isinstance(boxes, np.ndarray):
-        boxes = torch.from_numpy(boxes)
+        boxes = to_tensor(boxes)
     if isinstance(gt_boxes, np.ndarray):
-        gt_boxes = torch.from_numpy(gt_boxes)
+        gt_boxes = to_tensor(gt_boxes)
 
     # boxes : some props boxes
     # gt_boxes : ground truth box

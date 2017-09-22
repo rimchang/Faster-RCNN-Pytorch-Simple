@@ -225,7 +225,7 @@ def train(args):
 
             # ============= Get Targets =================#
 
-            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, image, gt_boxes_c, args)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, gt_boxes_c, image_info, args)
             frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
 
             if roi_boxes.shape[0] == 0:
@@ -234,12 +234,12 @@ def train(args):
             # ============= frcnn ========================#
 
             rois_features = roipool(features, roi_boxes)
-            bbox_pred, cls_score, frcnn_logits = fasterrcnn(rois_features)
+            frcnn_bbox_pred, frcnn_cls_prob, frcnn_logits = fasterrcnn(rois_features)
 
             # ============= Compute loss =================#
 
-            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights ,rpn_logits)
-            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(cls_score, bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights, frcnn_logits)
+            rpn_cls_loss, rpn_reg_loss, rpn_log = rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights)
+            frcnn_cls_loss, frcnn_reg_loss, frcnn_log = frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights)
 
             rpnloss = rpn_cls_loss + rpn_reg_loss
             frcnnloss = frcnn_cls_loss + frcnn_reg_loss
@@ -335,9 +335,9 @@ def train(args):
 
                 image_np = image.data.cpu().numpy()
                 score_np = scores
-                cls_score_np = cls_score.data.cpu().numpy()
+                cls_score_np = frcnn_cls_prob.data.cpu().numpy()
                 roi_boxes_np = np.array(roi_boxes)
-                bbox_pred_np = bbox_pred.data.cpu().numpy()
+                bbox_pred_np = frcnn_bbox_pred.data.cpu().numpy()
 
                 #all_anchors_img = img_get(image_np, all_anchors_boxes, show=True)
                 proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
