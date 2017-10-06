@@ -112,8 +112,11 @@ def make_val_boxes(args):
         path = args.output_dir + args.pickle_dir + name_param
     else:
         path =  "." + args.pickle_dir + name_param
-    read_pickle(path, model, solver)
 
+    if os.path.isdir(path) ==False:
+        path = args.output_dir + args.pickle_dir + name_param
+
+    read_pickle(path, model, solver)
 
     if torch.cuda.is_available():
         print("using cuda")

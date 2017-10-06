@@ -89,8 +89,9 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
 
     # loss 계산시 positive box mask를 위한 배열
     bbox_inside_weights = np.zeros((bbox_targets.shape[0], 4), dtype=np.float32)
-    bbox_inside_weights[labels == 1, :] = [1, 1, 1, 1]
+    bbox_inside_weights[labels == 1, :] = [1.0, 1.0, 1.0, 1.0]
 
+    #print(bbox_targets.shape, bbox_inside_weights.shape, labels.shape)
     # map up to original set of anchors
     # inds_inside 는 data로 채우고 나머지는 fill의 값으로 채움. 즉 backround인 box의 target을 채워준다.
     labels = _unmap(labels, num_anchors, inds_inside, fill=-1)
@@ -166,7 +167,8 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
                               (max_overlaps >= args.bg_threshold[0]))[0]
     else:
         bg_indices = np.where((max_overlaps < args.bg_threshold[1]) &
-                              (max_overlaps >= 0.0))[0]
+                              (max_overlaps >= 0))[0]
+
 
     bg_rois_per_this_image = rois_per_image - fg_rois_per_this_image
     bg_rois_per_this_image = min(bg_rois_per_this_image, len(bg_indices))

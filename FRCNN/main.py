@@ -7,6 +7,7 @@ from run.eval import evaluation
 
 def main(args):
 
+
     if args.train:
         train(args)
 
@@ -31,7 +32,7 @@ if __name__ == '__main__':
     # other parameters
     parser.add_argument('--model_name', type=str, default="C3",
                         help='this model_name is used for naming directory name')
-    parser.add_argument('--train', type=str2bool, default=False,
+    parser.add_argument('--train', type=str2bool, default=True,
                         help='train')
     parser.add_argument('--make_val_boxes', type=str2bool, default=True,
                         help='if this True, excute make_val_boxes after training ')
@@ -54,7 +55,7 @@ if __name__ == '__main__':
                         help='minimum proposal region size')
     proposal_layer.add_argument('--pre_nms_topn', type=float, default=12000,
                         help='proposal region topn filter before nms')
-    proposal_layer.add_argument('--post_nms_topn', type=float, default=2000,
+    proposal_layer.add_argument('--post_nms_topn', type=float, default=300,
                         help='proposal region topn filter after nms')
     proposal_layer.add_argument('--nms_thresh', type=float, default=0.7,
                         help='IOU nms thresholds')
@@ -81,7 +82,7 @@ if __name__ == '__main__':
                         help='foreground fraction')
     frcnn_targets.add_argument('--fg_threshold', type=float, default=0.5,
                         help='foreground object thresholds')
-    frcnn_targets.add_argument('--bg_threshold', type=tuple, default=(0.0, 0.5),
+    frcnn_targets.add_argument('--bg_threshold', type=tuple, default=(0.1, 0.5),
                         help='background object thresholds')
     frcnn_targets.add_argument('--include_gt', type=str2bool, default=True,
                         help='include ground truth box in frcnn_targets')
@@ -92,7 +93,7 @@ if __name__ == '__main__':
     training = parser.add_argument_group('training')
     training.add_argument('--lr', type=float, default=0.001,
                         help='learning rate')
-    training.add_argument('--ft_lr', type=float, default=0.0001,
+    training.add_argument('--ft_lr', type=float, default=0.001,
                         help='little low lr for fine tuning')
     training.add_argument('--ft_step', type=int, default=2,
                         help='at ft_step epoch small lr increase in finetuning CNN')
@@ -133,7 +134,7 @@ if __name__ == '__main__':
     # step parameter
     other.add_argument('--pickle_step', type=int, default=4,
                         help='pickle save at pickle_step epoch')
-    other.add_argument('--log_step', type=int, default=1,
+    other.add_argument('--log_step', type=int, default=20,
                         help='tensorboard log save and print log at log_step epoch')
     other.add_argument('--image_save_step', type=int, default=100,
                         help='output image save at image_save_step iteration')

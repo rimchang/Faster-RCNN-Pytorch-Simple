@@ -116,7 +116,12 @@ def train(args):
     solver.param_groups[0]['epoch'] = 0
     solver.param_groups[0]['iter'] = 0
 
+
     path =  "." + args.pickle_dir + name_param
+
+    if os.path.isdir(path) ==False:
+        path = args.output_dir + args.pickle_dir + name_param
+
     read_pickle(path, model, solver)
 
     def adjust_learning_rate(optimizer, epoch, ft_step=args.ft_step, step=args.lr_step):
