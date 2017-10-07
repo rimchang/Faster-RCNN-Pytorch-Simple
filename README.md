@@ -53,8 +53,7 @@ and the VGG16 model pre-trained on ImageNet.
 Since the program loading the data in `FRCNN/input` by default,
 you can set the data path as following.
 
-Now I got a 0.661 mAP on VOC07 while the origin paper got a 0.699 mAP.
-You may need to tune the loss function defined in `FRCNN/model.py` by yourself.
+# this repo is not completed. it's performance is low than other rep
 
 ### Result
 1000 epochs
