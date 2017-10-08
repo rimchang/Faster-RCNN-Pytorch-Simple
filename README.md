@@ -53,7 +53,7 @@ and the VGG16 model pre-trained on ImageNet.
 Since the program loading the data in `FRCNN/input` by default,
 you can set the data path as following.
 
-# this repo is not completed. it's performance is low than other rep
+# this repo is not completed. it's performance is low than other repo
 
 ### Result
 1000 epochs

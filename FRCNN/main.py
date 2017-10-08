@@ -7,15 +7,15 @@ from run.eval import evaluation
 
 def main(args):
 
+    for i in range(2):
+        if args.train:
+            train(args)
 
-    if args.train:
-        train(args)
+        if args.make_val_boxes:
+            make_val_boxes(args)
 
-    if args.make_val_boxes:
-        make_val_boxes(args)
-
-    if args.test:
-        evaluation(args)
+        if args.test:
+            evaluation(args)
 
 
 def str2bool(v):
@@ -55,7 +55,7 @@ if __name__ == '__main__':
                         help='minimum proposal region size')
     proposal_layer.add_argument('--pre_nms_topn', type=float, default=12000,
                         help='proposal region topn filter before nms')
-    proposal_layer.add_argument('--post_nms_topn', type=float, default=300,
+    proposal_layer.add_argument('--post_nms_topn', type=float, default=2000,
                         help='proposal region topn filter after nms')
     proposal_layer.add_argument('--nms_thresh', type=float, default=0.7,
                         help='IOU nms thresholds')

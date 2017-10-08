@@ -194,16 +194,3 @@ def obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=T
     img = img_get(image_np, boxes_filterd[sort_keep], labels_filterd[sort_keep], score_filterd[sort_keep], show=show)
 
     return img
-
-def reshape_layer(x, d):
-    input_shape = x.size()
-    # x = x.permute(0, 3, 1, 2)
-    # b c w h
-    x = x.view(
-        input_shape[0],
-        int(d),
-        int(float(input_shape[1] * input_shape[2]) / float(d)),
-        input_shape[3]
-    )
-    # x = x.permute(0, 2, 3, 1)
-    return x

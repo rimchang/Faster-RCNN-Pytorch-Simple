@@ -42,6 +42,7 @@ def get_anchors(feature, anchor, feat_stride=16):
     all_anchors = (anchor.reshape((1, A, 4)) +
                    shifts.reshape((1, K, 4)).transpose((1, 0, 2)))
 
-    # 총 H/16 * W/16 개의 anchor
+    # row order : H/16, W/16, A
+    # 총 H/16 * W/16 * 9 개의 anchor
     all_anchors = all_anchors.reshape((K * A, 4))
     return all_anchors

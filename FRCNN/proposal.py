@@ -10,10 +10,10 @@ class ProposalLayer:
 
     def _get_pos_score(self, rpn_cls_prob):
 
-        height, width = rpn_cls_prob.size()[-2:]
-        #print(rpn_cls_prob.size(), height, width)
-        pos_scores = rpn_cls_prob.view((1, 2, 9 * height * width)) # (1, 18, H/16, W/16) => (1, 2, 9 * H/16 * W/16)
-        pos_scores = pos_scores[:, 1].view(-1, 1)  # (1, 1, 9, H/16, W/16) => (9 * H/16 * W/16, 1)
+
+        pos_scores = rpn_cls_prob[:, :9] # (1, 9, H/16, W/16)
+        pos_scores = pos_scores.squeeze(0).permute(1, 2, 0).contiguous() # (1, 9, H/16, W/16) => (H/16 ,W/16, 9)
+        pos_scores = pos_scores.view(-1, 1)  # (H/16 ,W/16, 9) => (H/16 * W/16 * 9, 1)
 
 
 
@@ -22,11 +22,8 @@ class ProposalLayer:
     def _get_bbox_deltas(self, rpn_bbox_pred):
 
 
-        #bbox_deltas = rpn_bbox_pred.permute(0, 2, 3, 1).contiguous()  # (1, 36, H/16, W/16) => (1, H/16, W/16, 36)
-        #bbox_deltas = bbox_deltas.view((-1, 4))  # (1, H/16, W/16, 36) => (H/16 * W/16 * 9, 4)
-
-        bbox_deltas = rpn_bbox_pred.view(1, 4, -1)  # (1, 36, H/16, W/16) => (1, 4, 9 * H/16 * W/16)
-        bbox_deltas = bbox_deltas.permute(0, 2, 1).contiguous().squeeze(0).view(-1, 4)  # (1, 4, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16, 4) => (9 * H/16 * W/16, 4)
+        bbox_deltas = rpn_bbox_pred.squeeze(0).permute(1, 2, 0).contiguous() # (1, 36, H/16, W/16) => (H/16 ,W/16, 36)
+        bbox_deltas = bbox_deltas.view(-1, 4)  # (H/16 ,W/16, 36) => (H/16 * W/16 * 9, 4)
 
         return bbox_deltas
 
@@ -35,7 +32,7 @@ class ProposalLayer:
         Arguments:
             rpn_bbox_pred (Tensor) : (1, 4*9, H/16, W/16)
             rpn_cls_prob (Tensor) : (1, 2*9, H/16, W/16)
-            all_anchors_boxes (Ndarray) : (9 * H/16 * W/16, 4) predicted boxes
+            all_anchors_boxes (Ndarray) : (H/16 * W/16 * 9, 4) predicted boxes
             im_info (Tuple) : (Height, Width, Channel, Scale)
             test (Bool) : True or False
             args (argparse.Namespace) : global arguments
@@ -56,7 +53,7 @@ class ProposalLayer:
         bbox_deltas = self._get_bbox_deltas(rpn_bbox_pred).data.cpu().numpy()
 
         # 1. Convert anchors into proposal via bbox transformation
-        proposals_boxes = bbox_transform_inv(all_anchors_boxes, bbox_deltas)  # (9 * H/16 * W/16, 4) all proposal boxes
+        proposals_boxes = bbox_transform_inv(all_anchors_boxes, bbox_deltas)  # (H/16 * W/16 * 9, 4) all proposal boxes
         pos_score = self._get_pos_score(rpn_cls_prob).data.cpu().numpy()
 
 

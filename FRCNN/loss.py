@@ -11,9 +11,9 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
         rpn_cls_prob (Tensor): (1, 2*9, H/16, W/16)
         rpn_logits (Tensor): (H/16 * W/16 , 2) object or non-object rpn_logits
         rpn_bbox_pred (Tensor): (1, 4*9, H/16, W/16) predicted boxes
-        rpn_labels (Ndarray) : (9 * H/16 * W/16 ,)
-        rpn_bbox_targets (Ndarray) : (9 * H/16 * W/16, 4)
-        rpn_bbox_inside_weights (Ndarray) : (9 * H/16 * W/16, 4) masking for only positive box loss
+        rpn_labels (Ndarray) : (H/16 * W/16 * 9 ,)
+        rpn_bbox_targets (Ndarray) : (H/16 * W/16 * 9, 4)
+        rpn_bbox_inside_weights (Ndarray) : (H/16 * W/16 * 9, 4) masking for only positive box loss
 
     Return:
         cls_loss (Scalar) : classfication loss
@@ -23,19 +23,10 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
 
     height, width = rpn_cls_prob.size()[-2:]  # (H/16, W/16)
 
-    # (1, 18, H/16, W/16) => (2, 9 * H/16 * W/16) => (9 * H/16 * W/16, 2)
-    # rpn_cls_prob = rpn_cls_prob.view(2, 9 * height * width).permute(1, 0).contiguous()
-
-    # (1, 18, H/16, W/16) => (1, 2,  9 * H/16 * W/16) => (9 * H/16 * W/16, 2)
-    # rpn_cls_prob = rpn_cls_prob.view((1, 2, 9 * height * width)).permute(0, 2, 1).squeeze(0)
-
-    rpn_cls_prob = rpn_cls_prob.view((1, 2, 9 * height * width))  # (1, 18, H/16, W/16) => (1, 2, 9  * H/16 * W/16)
-    rpn_cls_prob = rpn_cls_prob.permute(0, 2, 1).squeeze(0)  # (1, 2, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16, 2) => (9 * H/16 * W/16 , 2)
+    rpn_cls_prob = rpn_cls_prob.squeeze(0).permute(1, 2, 0).contiguous()  # (1, 18, H/16, W/16) => (H/16 ,W/16, 18)
+    rpn_cls_prob = rpn_cls_prob.view(-1, 2)  # (H/16 ,W/16, 18) => (H/16 * W/16 * 9, 2)
 
     rpn_labels = to_tensor(rpn_labels).long() # convert properly # (H/16 * W/16 * 9)
-    # (H/16 * W/16 * 9) => (1, H/16, W/16, 9) => (1, 9, H/16, W/16) => (9 * H/16 * W/16, )
-    # rpn_labels = rpn_labels.view(1, height, width, -1).permute(0, 3, 1, 2).contiguous()
-    # rpn_labels = rpn_labels.view(-1)
 
 
     # index where not -1
@@ -67,23 +58,25 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
         tn = 0
 
     rpn_labels = to_var(rpn_labels)
-    #cls_crit = nn.NLLLoss()
-    #cls_loss = cls_crit(rpn_cls_prob, rpn_labels)
 
-    cls_crit = nn.CrossEntropyLoss()
-    cls_loss = cls_crit(rpn_logits, rpn_labels)
+    cls_crit = nn.NLLLoss()
+    log_rpn_cls_prob = torch.log(rpn_cls_prob)
+    cls_loss = cls_crit(log_rpn_cls_prob, rpn_labels)
+
+    #cls_crit = nn.CrossEntropyLoss()
+    #cls_loss = cls_crit(rpn_logits, rpn_labels)
 
 
-    # (9 * H/16 * W/16, 4) => (1, 9 * H/16 * W/16, 4) => (1, 4, 9 * H/16 * W/16) => (1, 36, H/16, W/16)
+
     rpn_bbox_targets = torch.from_numpy(rpn_bbox_targets)
-    rpn_bbox_targets = rpn_bbox_targets.unsqueeze(0).permute(0, 2, 1).contiguous()
-    rpn_bbox_targets = rpn_bbox_targets.view(1, 4, 9, height, width).view(1, 36, height, width)
+    rpn_bbox_targets = rpn_bbox_targets.view(height, width, 36)  # (H/16 * W/16 * 9, 4)  => (H/16 ,W/16, 36)
+    rpn_bbox_targets = rpn_bbox_targets.permute(2, 0, 1).contiguous().unsqueeze(0) # (H/16 ,W/16, 36) => (1, 36, H/16, W/16)
     rpn_bbox_targets = to_var(rpn_bbox_targets)
 
-    # (9 * H/16 * W/16, 4) => (1, 9 * H/16 * W/16, 4) => (1, 4, 9 * H/16 * W/16) => (1, 36, H/16, W/16)
+
     rpn_bbox_inside_weights = torch.from_numpy(rpn_bbox_inside_weights)
-    rpn_bbox_inside_weights = rpn_bbox_inside_weights.unsqueeze(0).permute(0, 2, 1).contiguous()
-    rpn_bbox_inside_weights = rpn_bbox_inside_weights.view(1, 4, 9, height, width).view(1, 36, height, width)
+    rpn_bbox_inside_weights = rpn_bbox_inside_weights.view(height, width, 36)  # (H/16 * W/16 * 9, 4)  => (H/16 ,W/16, 36)
+    rpn_bbox_inside_weights = rpn_bbox_inside_weights.permute(2, 0, 1).contiguous().unsqueeze(0) # (H/16 ,W/16, 36) => (1, 36, H/16, W/16)
 
     rpn_bbox_inside_weights = rpn_bbox_inside_weights.cuda() if torch.cuda.is_available() else rpn_bbox_inside_weights     
 
@@ -91,9 +84,14 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
     rpn_bbox_pred = to_var(torch.mul(rpn_bbox_pred.data, rpn_bbox_inside_weights))
     rpn_bbox_targets = to_var(torch.mul(rpn_bbox_targets.data, rpn_bbox_inside_weights))
 
-
     reg_crit = nn.SmoothL1Loss(size_average=False)
-    reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (po_cnt + 1e-4)
+    reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / rpn_labels.size(0)
+
+    #reg_crit = nn.SmoothL1Loss(size_average=False)
+    #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (rpn_bbox_pred.size(0) / 9)
+
+    #reg_crit = nn.SmoothL1Loss(size_average=False)
+    #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (po_cnt * 4 + 1e-4)
 
     # for avoid print error
     if po_cnt == 0:
@@ -102,9 +100,9 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
         ne_cnt = 1
 
     log = (po_cnt, ne_cnt, tp, tn)
-    print("rpn log", log, "loss" ,cls_loss.data[0], reg_loss.data[0] * 10)
+    #print("rpn log", log, "loss" ,cls_loss.data[0], reg_loss.data[0] * 10)
 
-    return cls_loss, reg_loss * 10, log
+    return cls_loss, reg_loss, log
 
 
 def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights):
@@ -140,22 +138,25 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
         tp = 0
         tn = 0
 
+    frcnn_labels = to_var(frcnn_labels)
+
+
 
     ce_weights = torch.ones(frcnn_cls_prob.size()[1])
     ce_weights[0] = float(fg_cnt) / bg_cnt if bg_cnt != 0 else 1
 
-
     if torch.cuda.is_available():
         ce_weights = ce_weights.cuda()
 
-    frcnn_labels = to_var(frcnn_labels)
 
-    #cls_crit = nn.NLLLoss(weight=ce_weights)
-    #cls_loss = cls_crit(frcnn_cls_prob, frcnn_labels)
+    cls_crit = nn.NLLLoss(weight=ce_weights)
+    log_frcnn_cls_prob = torch.log(frcnn_cls_prob)
+    cls_loss = cls_crit(log_frcnn_cls_prob, frcnn_labels)
 
 
-    cls_crit = nn.CrossEntropyLoss(weight=ce_weights)
-    cls_loss = cls_crit(frcnn_logits, frcnn_labels)
+    #cls_crit = nn.CrossEntropyLoss(weight=ce_weights)
+    #cls_crit = nn.CrossEntropyLoss()
+    #cls_loss = cls_crit(frcnn_logits, frcnn_labels)
 
     frcnn_bbox_inside_weights = to_tensor(frcnn_bbox_inside_weights)
     frcnn_bbox_targets = to_tensor(frcnn_bbox_targets)
@@ -163,8 +164,9 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
     frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
     frcnn_bbox_targets = to_var(torch.mul(frcnn_bbox_targets, frcnn_bbox_inside_weights))
 
-    reg_crit = nn.SmoothL1Loss(size_average=False)
-    reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets)  / (fg_cnt + 1e-4)
+    #reg_crit = nn.SmoothL1Loss(size_average=False)
+    reg_crit = nn.SmoothL1Loss(size_average=True)
+    reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets) # / (fg_cnt * 4 + 1e-4)
 
     # for avoid print error
     if fg_cnt == 0:
@@ -175,5 +177,5 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
     log = (fg_cnt, bg_cnt, tp, tn)
     #print("frcnn log", log)
 
-    return cls_loss, reg_loss * 10, log
+    return cls_loss, reg_loss, log
 

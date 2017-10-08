@@ -49,45 +49,15 @@ class RPN(nn.Module):
 
         logits, rpn_bbox_pred = self.conv1(features), self.conv2(features)
 
-        logits = logits.view((1, 2, 9 * features.size()[2] * features.size()[3]))  # (1, 18, H/16, W/16) => (1, 2, 9  * H/16 * W/16)
-        logits = logits.permute(0, 2, 1).squeeze(0)  # (1, 2, 9 * H/16 * W/16) => (1, 9 * H/16 * W/16, 2) => (9 * H/16 * W/16 , 2)
-
-        #height, width = features.size()[-2:]
-        #logits = logits.view((1, 2, 9 ,height ,width)).permute(0, 2, 3, 4, 1).contiguous()  # (1, 18, H/16, W/16) => (1, 2, 9 ,H/16 ,W/16) => (1, 2, H/16, W/16, 9)
-        #logits = logits.view(1, 2, -1).view(-1, 2) # (1, 2, H/16, W/16, 9) => (1, 2, H/16 * W/16 *9) = > (H/16 * W/16 * 9 ,2)
-
-
-        #logits = self.reshape_layer(logits, 2) # logtis.view(1, 2, 9 * H/16 , W/16)
-        #print(logits.size())
+        height, width = features.size()[-2:]
+        logits = logits.squeeze(0).permute(1, 2, 0).contiguous()  # (1, 18, H/16, W/16) => (H/16 ,W/16, 18)
+        logits = logits.view(-1, 2)  # (H/16 ,W/16, 18) => (H/16 * W/16 * 9, 2)
 
         rpn_cls_prob = self.softmax(logits)
-        rpn_cls_prob = rpn_cls_prob.unsqueeze(0).permute(0, 2, 1).contiguous()  # (9 * H/16 * W/16 , 2)  => (1, 9 * H/16 * W/16 , 2) => (1, 2, 9 * H/16 * W/16)
-        rpn_cls_prob = rpn_cls_prob.view((1, 18, features.size()[2], features.size()[3]))  # (1, 2, 9 * H/16 * W/16) => (1, 18 ,H/16 , W/16)
-
-        #rpn_cls_prob = F.softmax(logits) # nomalize over channel 1
-        #a = rpn_cls_prob.data.cpu().numpy()
-        #print(a)
-
-        #rpn_cls_prob = self.reshape_layer(rpn_cls_prob, 18) # rpn_cls_prob.view(1, 18, H/16 , W/16)
-        #print(rpn_cls_prob.size())
-        #b = rpn_cls_prob.data.cpu().numpy()
-        #print(b)
+        rpn_cls_prob = rpn_cls_prob.view(height, width, 18)  # (H/16 * W/16 * 9, 2)  => (H/16 ,W/16, 18)
+        rpn_cls_prob = rpn_cls_prob.permute(2, 0, 1).contiguous().unsqueeze(0) # (H/16 ,W/16, 18) => (1, 18, H/16, W/16)
 
         return rpn_bbox_pred, rpn_cls_prob, logits
-
-    @staticmethod
-    def reshape_layer(x, d):
-        input_shape = x.size()
-        # x = x.permute(0, 3, 1, 2)
-        # b c w h
-        x = x.view(
-            input_shape[0],
-            int(d),
-            int(float(input_shape[1] * input_shape[2]) / float(d)),
-            input_shape[3]
-        )
-        # x = x.permute(0, 2, 3, 1)
-        return x
 
 
 class ROIpooling(nn.Module):
