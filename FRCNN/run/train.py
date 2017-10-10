@@ -21,7 +21,7 @@ from target import rpn_targets, frcnn_targets
 from loss import rpn_loss, frcnn_loss
 from utils_.utils import img_get, obj_img_get, proposal_img_get, save_pickle, read_pickle
 from utils_.boxes_utils import RandomHorizontalFlip, Maxsizescale
-
+from vgg import VGG16
 
 def train(args):
 
@@ -73,7 +73,10 @@ def train(args):
         """
         def __init__(self):
             super(Model, self).__init__()
-            self.feature_extractor = CNN()
+            #self.feature_extractor = CNN()
+            self.feature_extractor = VGG16()
+            self.feature_extractor.load_from_npy_file('../input/pretrained_model/VGG_imagenet.npy')
+
             self.rpn = RPN()
             self.fasterrcnn = FasterRcnn()
             self.proplayer = ProposalLayer(args=args)
@@ -89,14 +92,6 @@ def train(args):
 
     print("model loading time : {:.2f}".format(pc() - t0))
 
-
-    # fine tuning after conv3_1
-    if args.ft_conv3:
-        for module in list(list(feature_extractor.children())[0].children())[:10]:
-            for param in module.parameters():
-                param.requires_grad = False
-
-    print("fix weight",list(list(feature_extractor.children())[0].children())[:10])
 
     # initialization new layer weight N(0, 0.01)
     if args.init_gaussian:

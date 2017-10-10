@@ -7,7 +7,7 @@ from run.eval import evaluation
 
 def main(args):
 
-    for i in range(2):
+    for i in range(3):
         if args.train:
             train(args)
 

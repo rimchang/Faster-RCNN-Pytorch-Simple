@@ -19,6 +19,11 @@ class CNN(nn.Module):
 
         self.vggnet = nn.Sequential(*modules)
 
+        for module in list(self.vggnet.children())[:10]:
+            print("fix weight", module)
+            for param in module.parameters():
+                param.requires_grad = False
+
     def forward(self, images):
         """Extract the image feature vectors."""
 

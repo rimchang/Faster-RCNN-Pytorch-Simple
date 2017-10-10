@@ -59,12 +59,12 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
 
     rpn_labels = to_var(rpn_labels)
 
-    cls_crit = nn.NLLLoss()
-    log_rpn_cls_prob = torch.log(rpn_cls_prob)
-    cls_loss = cls_crit(log_rpn_cls_prob, rpn_labels)
+    #cls_crit = nn.NLLLoss()
+    #log_rpn_cls_prob = torch.log(rpn_cls_prob)
+    #cls_loss = cls_crit(log_rpn_cls_prob, rpn_labels)
 
-    #cls_crit = nn.CrossEntropyLoss()
-    #cls_loss = cls_crit(rpn_logits, rpn_labels)
+    cls_crit = nn.CrossEntropyLoss()
+    cls_loss = cls_crit(rpn_logits, rpn_labels)
 
 
 
@@ -81,17 +81,18 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
     rpn_bbox_inside_weights = rpn_bbox_inside_weights.cuda() if torch.cuda.is_available() else rpn_bbox_inside_weights     
 
 
-    rpn_bbox_pred = to_var(torch.mul(rpn_bbox_pred.data, rpn_bbox_inside_weights))
-    rpn_bbox_targets = to_var(torch.mul(rpn_bbox_targets.data, rpn_bbox_inside_weights))
+    #rpn_bbox_pred = to_var(torch.mul(rpn_bbox_pred.data, rpn_bbox_inside_weights))
+    #rpn_bbox_targets = to_var(torch.mul(rpn_bbox_targets.data, rpn_bbox_inside_weights))
 
-    reg_crit = nn.SmoothL1Loss(size_average=False)
-    reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / rpn_labels.size(0)
+
+    reg_crit = nn.SmoothL1Loss(size_average=True)
+    reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets)
 
     #reg_crit = nn.SmoothL1Loss(size_average=False)
     #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (rpn_bbox_pred.size(0) / 9)
 
     #reg_crit = nn.SmoothL1Loss(size_average=False)
-    #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (po_cnt * 4 + 1e-4)
+    #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (po_cnt + 1e-4)
 
     # for avoid print error
     if po_cnt == 0:
@@ -102,7 +103,7 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
     log = (po_cnt, ne_cnt, tp, tn)
     #print("rpn log", log, "loss" ,cls_loss.data[0], reg_loss.data[0] * 10)
 
-    return cls_loss, reg_loss, log
+    return cls_loss, reg_loss * 10 , log
 
 
 def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcnn_bbox_targets, frcnn_bbox_inside_weights):
@@ -149,24 +150,27 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
         ce_weights = ce_weights.cuda()
 
 
-    cls_crit = nn.NLLLoss(weight=ce_weights)
-    log_frcnn_cls_prob = torch.log(frcnn_cls_prob)
-    cls_loss = cls_crit(log_frcnn_cls_prob, frcnn_labels)
+    #cls_crit = nn.NLLLoss(weight=ce_weights)
+    #log_frcnn_cls_prob = torch.log(frcnn_cls_prob)
+    #cls_loss = cls_crit(log_frcnn_cls_prob, frcnn_labels)
 
 
-    #cls_crit = nn.CrossEntropyLoss(weight=ce_weights)
+    cls_crit = nn.CrossEntropyLoss(weight=ce_weights)
     #cls_crit = nn.CrossEntropyLoss()
-    #cls_loss = cls_crit(frcnn_logits, frcnn_labels)
+    cls_loss = cls_crit(frcnn_logits, frcnn_labels)
 
     frcnn_bbox_inside_weights = to_tensor(frcnn_bbox_inside_weights)
     frcnn_bbox_targets = to_tensor(frcnn_bbox_targets)
 
-    frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
-    frcnn_bbox_targets = to_var(torch.mul(frcnn_bbox_targets, frcnn_bbox_inside_weights))
+    #frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
+    #frcnn_bbox_targets = to_var(torch.mul(frcnn_bbox_targets, frcnn_bbox_inside_weights))
+
+    #frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
+    frcnn_bbox_targets = to_var(frcnn_bbox_targets)
 
     #reg_crit = nn.SmoothL1Loss(size_average=False)
     reg_crit = nn.SmoothL1Loss(size_average=True)
-    reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets) # / (fg_cnt * 4 + 1e-4)
+    reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets) # / (fg_cnt + 1e-4)
 
     # for avoid print error
     if fg_cnt == 0:
@@ -177,5 +181,5 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
     log = (fg_cnt, bg_cnt, tp, tn)
     #print("frcnn log", log)
 
-    return cls_loss, reg_loss, log
+    return cls_loss, reg_loss * 10 , log
 

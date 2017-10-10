@@ -48,11 +48,15 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
     # overlaps (ex, gt)
 
     overlaps = bbox_overlaps(inside_anchors_boxes, gt_boxes_c[:,:-1]).cpu().numpy()
+
+    # anchor와 가장많이 겹치는 gtbox의 index(argmax_overlaps)와 그 IOU(max_overlaps)
     argmax_overlaps = overlaps.argmax(axis=1)
-    max_overlaps = overlaps[np.arange(len(inds_inside)), argmax_overlaps]
+    max_overlaps = overlaps[np.arange(len(inds_inside)), argmax_overlaps] # anchor와 가장 많이 겹치는 IOU
 
 
-    gt_argmax_overlaps = overlaps.argmax(axis=0)
+    gt_argmax_overlaps = overlaps.argmax(axis=0) # gtbox와 가장많이 겹치는 anchor
+
+    # gtbox와 가장많이 겹치는 anchor의 index(gt_argmax_overlaps)와 그 IOU(gt_max_overlaps)
     gt_max_overlaps = overlaps[gt_argmax_overlaps,
                                np.arange(overlaps.shape[1])]
     gt_argmax_overlaps = np.where(overlaps == gt_max_overlaps)[0]
