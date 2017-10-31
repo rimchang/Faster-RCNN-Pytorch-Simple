@@ -25,7 +25,7 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
 
     # im_info : (H, W, C, S)
     height, width = im_info[:2]
-    
+
     # only keep anchors inside the image
     _allowed_border = 0
     inds_inside = np.where(
@@ -34,6 +34,7 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
         (all_anchors_boxes[:, 2] < width + _allowed_border) &  # width
         (all_anchors_boxes[:, 3] < height + _allowed_border)  # height
     )[0]
+
 
     # keep only inside anchors
     inside_anchors_boxes = all_anchors_boxes[inds_inside, :]
@@ -80,7 +81,7 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
         labels[disable_inds] = -1
 
     # subsample negative labels if we have too many
-    num_bg = 256 - np.sum(labels == 1)
+    num_bg = args.rpn_batch_size - np.sum(labels == 1)
     bg_inds = np.where(labels == 0)[0]
     if len(bg_inds) > num_bg:
         disable_inds = np.random.choice(
@@ -93,7 +94,9 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
 
     # loss 계산시 positive box mask를 위한 배열
     bbox_inside_weights = np.zeros((bbox_targets.shape[0], 4), dtype=np.float32)
-    bbox_inside_weights[labels == 1, :] = [1.0, 1.0, 1.0, 1.0]
+
+    mask = np.where(labels == 1)[0]
+    bbox_inside_weights[mask, :] = [1.0, 1.0, 1.0, 1.0]
 
     #print(bbox_targets.shape, bbox_inside_weights.shape, labels.shape)
     # map up to original set of anchors
@@ -105,10 +108,27 @@ def rpn_targets(all_anchors_boxes, gt_boxes_c, im_info, args):
 
     return labels, bbox_targets, bbox_inside_weights
 
+def _jitter_gt_boxes(gt_boxes, jitter=0.05):
+    """ jitter the gtboxes, before adding them into rois, to be more robust for cls and rgs
+    gt_boxes: (G, 4) [x1 ,y1 ,x2, y2] int
+    """
+    jittered_boxes = gt_boxes.copy()
+    ws = jittered_boxes[:, 2] - jittered_boxes[:, 0] + 1.0
+    hs = jittered_boxes[:, 3] - jittered_boxes[:, 1] + 1.0
+    width_offset = (np.random.rand(jittered_boxes.shape[0]) - 0.5) * jitter * ws
+    height_offset = (np.random.rand(jittered_boxes.shape[0]) - 0.5) * jitter * hs
+    jittered_boxes[:, 0] += width_offset
+    jittered_boxes[:, 2] += width_offset
+    jittered_boxes[:, 1] += height_offset
+    jittered_boxes[:, 3] += height_offset
+
+    jittered_boxes[jittered_boxes < 0] = 0
+
+    return jittered_boxes
 
 
 # faster-RCNN targets
-def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
+def frcnn_targets(prop_boxes, gt_boxes_c, args):
     """
     Arguments:
         prop_boxes (Tensor) : (# proposal boxes , 4)
@@ -125,8 +145,9 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
 
     gt_labels = gt_boxes_c[:, -1]
     gt_boxes = gt_boxes_c[:, :-1]
+    jitter_gt_boxes = _jitter_gt_boxes(gt_boxes)
 
-    all_boxes = np.vstack((prop_boxes, gt_boxes)) if args.include_gt and test == False else prop_boxes
+    all_boxes = np.vstack((prop_boxes, jitter_gt_boxes, gt_boxes))
     zeros = np.zeros((all_boxes.shape[0], 1), dtype=all_boxes.dtype)
     all_boxes_c = np.hstack((all_boxes, zeros))
 
@@ -134,7 +155,9 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
     num_images = 1
 
     # number of roi_boxes_c each per image
-    rois_per_image = int(args.frcnn_batch_size / num_images) if test == False else int(prop_boxes.shape[0] / num_images)
+    rois_per_image = int(args.frcnn_batch_size / num_images)
+    #rois_per_image = int(all_boxes_c.shape[0] / num_images) if test == False else int(prop_boxes.shape[0] / num_images)
+
     # number of foreground roi_boxes_c per image
     fg_rois_per_image = int(np.round(rois_per_image * args.fg_fraction))
 
@@ -166,12 +189,9 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
 
 
     # background에 해당하는 box를 찾고 이를 random 하게 섞어준다.
-    if test == False:
-        bg_indices = np.where((max_overlaps < args.bg_threshold[1]) &
-                              (max_overlaps >= args.bg_threshold[0]))[0]
-    else:
-        bg_indices = np.where((max_overlaps < args.bg_threshold[1]) &
-                              (max_overlaps >= 0))[0]
+
+    bg_indices = np.where((max_overlaps < args.bg_threshold[1]) &
+                          (max_overlaps >= 0))[0]
 
 
     bg_rois_per_this_image = rois_per_image - fg_rois_per_this_image
@@ -196,13 +216,20 @@ def frcnn_targets(prop_boxes, gt_boxes_c, test, args):
     # a = np.array([[j] for j in range(10)])
     # a[[0,0,0]]  : [[0],[0],[0]]
     # index array라서 해당 index에 해당하는 array의 객체가 반복되어 연산된다.
+    #a = gt_boxes[gt_assignment[keep_inds], :]
     delta_boxes = bbox_transform(roi_boxes_c[:, :-1], gt_boxes[gt_assignment[keep_inds], :])
+
+    # nomalization by precompute mean, std
+    # regression branch에 더 강한.. signal을 주는 역할을 하게 되는건가?
+    if args.target_normalization:
+        delta_boxes = ((delta_boxes - np.array((0.0, 0.0, 0.0, 0.0)))
+                   / np.array((0.1, 0.1, 0.2, 0.2)))
 
     # _get_bbox_regression_labels
     # delta_boxes 을 84 차원의 target으로 만들어준다. faster_rcnn regressor의 아웃풋이 84
     targets = np.zeros((len(labels), 4 * 21), dtype=np.float32)
 
-    # loss 계산시 foreground mask를 위한 배열
+    # loss 계산시 foreground mask를 위한 array
     bbox_inside_weights = np.zeros(targets.shape, dtype=np.float32)
 
     # foreground object index

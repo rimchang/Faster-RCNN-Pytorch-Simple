@@ -11,15 +11,13 @@ from utils_.utils import make_name_string
 def evaluation(args):
 
     hyparam_list = [("model", args.model_name),
+                    ("bk", args.backbone),
                     ("train", (args.pre_nms_topn, args.nms_thresh, args.post_nms_topn)),
                     ("test", (args.test_pre_nms_topn, args.test_nms_thresh, args.test_post_nms_topn)),
                     ("pos_th", args.pos_threshold),
                     ("bg_th", args.bg_threshold),
-                    ("init_gau", args.init_gaussian),
                     ("last_nms", args.frcnn_nms),
-                    ("init_gau", args.init_gaussian),
                     ("include_gt", args.include_gt),
-                    ("ft_conv3", args.ft_conv3),
                     ("lr", args.lr)]
 
 
@@ -36,7 +34,7 @@ def evaluation(args):
         path =  "." + args.result_dir + name_param
 
 
-    _devkit_path = args.input_dir + "/test/VOCdevkit"
+    _devkit_path = args.input_dir + "/VOCdevkit2007"
     annopath = os.path.join(
         _devkit_path,
         'VOC2007',

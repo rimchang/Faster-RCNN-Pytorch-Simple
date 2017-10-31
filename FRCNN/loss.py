@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-
+import torch.nn.functional as F
 from utils_.utils import to_var, to_tensor
 
 def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights):
@@ -81,12 +81,12 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
     rpn_bbox_inside_weights = rpn_bbox_inside_weights.cuda() if torch.cuda.is_available() else rpn_bbox_inside_weights     
 
 
-    #rpn_bbox_pred = to_var(torch.mul(rpn_bbox_pred.data, rpn_bbox_inside_weights))
-    #rpn_bbox_targets = to_var(torch.mul(rpn_bbox_targets.data, rpn_bbox_inside_weights))
+    rpn_bbox_pred = to_var(torch.mul(rpn_bbox_pred.data, rpn_bbox_inside_weights))
+    rpn_bbox_targets = to_var(torch.mul(rpn_bbox_targets.data, rpn_bbox_inside_weights))
 
 
-    reg_crit = nn.SmoothL1Loss(size_average=True)
-    reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets)
+    #reg_crit = nn.SmoothL1Loss(size_average=True)
+    #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets)
 
     #reg_crit = nn.SmoothL1Loss(size_average=False)
     #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (rpn_bbox_pred.size(0) / 9)
@@ -94,11 +94,15 @@ def rpn_loss(rpn_cls_prob, rpn_logits, rpn_bbox_pred, rpn_labels, rpn_bbox_targe
     #reg_crit = nn.SmoothL1Loss(size_average=False)
     #reg_loss = reg_crit(rpn_bbox_pred, rpn_bbox_targets) / (po_cnt + 1e-4)
 
+    #reg_loss = F.smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, size_average=False) / (height * width)
+    #reg_loss = F.smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, size_average=False) / (po_cnt + 1e-4)
+    reg_loss = F.smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, size_average=True)
+
     # for avoid print error
     if po_cnt == 0:
-        po_cnt = 1
+        po_cnt = 0.001
     if ne_cnt == 0:
-        ne_cnt = 1
+        ne_cnt = 0.001
 
     log = (po_cnt, ne_cnt, tp, tn)
     #print("rpn log", log, "loss" ,cls_loss.data[0], reg_loss.data[0] * 10)
@@ -162,24 +166,28 @@ def frcnn_loss(frcnn_cls_prob, frcnn_logits, frcnn_bbox_pred, frcnn_labels, frcn
     frcnn_bbox_inside_weights = to_tensor(frcnn_bbox_inside_weights)
     frcnn_bbox_targets = to_tensor(frcnn_bbox_targets)
 
-    #frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
-    #frcnn_bbox_targets = to_var(torch.mul(frcnn_bbox_targets, frcnn_bbox_inside_weights))
+    frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
+    frcnn_bbox_targets = to_var(torch.mul(frcnn_bbox_targets, frcnn_bbox_inside_weights))
 
     #frcnn_bbox_pred = to_var(torch.mul(frcnn_bbox_pred.data, frcnn_bbox_inside_weights))
-    frcnn_bbox_targets = to_var(frcnn_bbox_targets)
+    #frcnn_bbox_targets = to_var(frcnn_bbox_targets)
 
     #reg_crit = nn.SmoothL1Loss(size_average=False)
-    reg_crit = nn.SmoothL1Loss(size_average=True)
-    reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets) # / (fg_cnt + 1e-4)
+
+    #reg_crit = nn.SmoothL1Loss(size_average=True)
+    #reg_loss = reg_crit(frcnn_bbox_pred, frcnn_bbox_targets)  #/ (fg_cnt + 1e-4)
+
+    #reg_loss = F.smooth_l1_loss(frcnn_bbox_pred, frcnn_bbox_targets, size_average=False) / (fg_cnt + 1e-4)
+    reg_loss = F.smooth_l1_loss(frcnn_bbox_pred, frcnn_bbox_targets, size_average=True)# / (fg_cnt + 1e-4)
 
     # for avoid print error
     if fg_cnt == 0:
-        fg_cnt = 1
+        fg_cnt = 0.001
     if bg_cnt == 0:
-        bg_cnt = 1
+        bg_cnt = 0.001
 
     log = (fg_cnt, bg_cnt, tp, tn)
     #print("frcnn log", log)
 
-    return cls_loss, reg_loss * 10 , log
+    return cls_loss, reg_loss , log
 

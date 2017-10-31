@@ -16,25 +16,23 @@ from utils_.utils import make_name_string
 from utils_.anchors import get_anchors, anchor
 
 from model import *
+from utils_.utils import *
 from proposal import ProposalLayer
 from target import rpn_targets, frcnn_targets
 from loss import rpn_loss, frcnn_loss
-from utils_.utils import img_get, obj_img_get, proposal_img_get, save_pickle, read_pickle
 from utils_.boxes_utils import RandomHorizontalFlip, Maxsizescale
 from vgg import VGG16
 
 def train(args):
 
     hyparam_list = [("model", args.model_name),
+                    ("bk", args.backbone),
                     ("train", (args.pre_nms_topn, args.nms_thresh, args.post_nms_topn)),
                     ("test", (args.test_pre_nms_topn, args.test_nms_thresh, args.test_post_nms_topn)),
                     ("pos_th", args.pos_threshold),
                     ("bg_th", args.bg_threshold),
-                    ("init_gau", args.init_gaussian),
                     ("last_nms", args.frcnn_nms),
-                    ("init_gau", args.init_gaussian),
                     ("include_gt", args.include_gt),
-                    ("ft_conv3", args.ft_conv3),
                     ("lr", args.lr)]
 
 
@@ -59,7 +57,7 @@ def train(args):
         transforms.ToTensor(),
     ])
 
-    trainset = VOCDetection(root=args.input_dir + "/train/VOCdevkit", image_set="trainval",
+    trainset = VOCDetection(root=args.input_dir + "/VOCdevkit2007", image_set="trainval",
                             transform=transform, target_transform=AnnotationTransform())
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=1, shuffle=True,
     num_workers = 1, collate_fn = detection_collate)
@@ -71,18 +69,23 @@ def train(args):
         """
         this Model class is used for simple model saving and loading
         """
-        def __init__(self):
+        def __init__(self, args):
             super(Model, self).__init__()
-            #self.feature_extractor = CNN()
-            self.feature_extractor = VGG16()
-            self.feature_extractor.load_from_npy_file('../input/pretrained_model/VGG_imagenet.npy')
+
+            print("using backbone", args.backbone)
+            if args.backbone == "vgg16_torch":
+                self.feature_extractor = CNN()
+
+            elif args.backbone == "vgg16_longcw":
+                self.feature_extractor = VGG16()
+                self.feature_extractor.load_from_npy_file('../input/pretrained_model/VGG_imagenet.npy')
 
             self.rpn = RPN()
             self.fasterrcnn = FasterRcnn()
             self.proplayer = ProposalLayer(args=args)
             self.roipool = ROIpooling()
 
-    model = Model()
+    model = Model(args)
 
     feature_extractor = model.feature_extractor
     rpn = model.rpn
@@ -93,20 +96,29 @@ def train(args):
     print("model loading time : {:.2f}".format(pc() - t0))
 
 
-    # initialization new layer weight N(0, 0.01)
-    if args.init_gaussian:
-        for module in [rpn, fasterrcnn, roipool]:
-            for weight in module.parameters():
-                weight.data.normal_(0, 0.01)
+    # init gaussian N(0, 0.01) for new layers
+    for module in [rpn, fasterrcnn, roipool]:
+
+        for key, value in dict(module.named_parameters()).items():
+            if 'bias' in key:
+                value.data.zero_()
+            else:
+                value.data.normal_(0, 0.01)
 
 
-    solver = optim.SGD([
-                            {'params': filter(lambda p: p.requires_grad, feature_extractor.parameters()), 'lr': args.ft_lr},
-                            {'params': rpn.parameters()},
-                            {'params': fasterrcnn.parameters()}
-                        ], lr=args.lr,
-                      momentum=args.momentum,
-                      weight_decay=args.weight_decay)
+    params = []
+    for module in [rpn, fasterrcnn, roipool]:
+        for key, value in dict(module.named_parameters()).items():
+            if value.requires_grad:
+                if 'bias' in key:
+                    params += [{'params': [value], 'lr': args.lr * (args.bias_double_lr + 1),
+                                'weight_decay': args.bias_weight_decay and args.weight_decay or 0}]
+                else:
+                    params += [{'params': [value], 'lr': args.lr, 'weight_decay': args.weight_decay}]
+
+
+
+    solver = optim.SGD(params, momentum=args.momentum,weight_decay=args.weight_decay)
 
     solver.param_groups[0]['epoch'] = 0
     solver.param_groups[0]['iter'] = 0
@@ -140,6 +152,14 @@ def train(args):
     rpn.train()
     roipool.train()
     fasterrcnn.train()
+
+    if args.backbone == "vgg16_torch":
+        pixel_mean = (0.485, 0.456, 0.406)
+        pixel_std = (0.229, 0.224, 0.225)
+
+    elif args.backbone == "vgg16_longcw":
+        pixel_mean = (122.7717 / 255, 115.9465 / 255, 102.9801 / 255)
+        pixel_std = (1, 1, 1)
 
     for epoch in range(args.n_epochs):
 
@@ -181,14 +201,13 @@ def train(args):
                 gt_boxes_c[:, 2] = (old_image_info[1] - 1) - x1
 
 
-
             im_transform = transforms.Compose([
                 transforms.ToPILImage(),
                 Maxsizescale(600, maxsize=1000),
                 RandomHorizontalFlip(random_number),
                 transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406),
-                                     (0.229, 0.224, 0.225)),
+                transforms.Normalize(pixel_mean,
+                                     pixel_std),
             ])
 
             image = im_transform(image.squeeze())
@@ -226,7 +245,7 @@ def train(args):
             # ============= Get Targets =================#
 
             rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights = rpn_targets(all_anchors_boxes, gt_boxes_c, image_info, args)
-            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, test=False, args=args)
+            frcnn_labels, roi_boxes, frcnn_bbox_targets, frcnn_bbox_inside_weights = frcnn_targets(proposals_boxes, gt_boxes_c, args)
 
             if roi_boxes.shape[0] == 0:
                 continue
@@ -328,27 +347,30 @@ def train(args):
             if (iteration) % args.image_save_step == 0:
 
                 # all proposals_boxes visualization
-                # image_np = image.data.numpy()
-                # img_show(image_np, all_anchors_boxes)
-
 
 
                 image_np = image.data.cpu().numpy()
+                image_np = image_np.squeeze().transpose((1, 2, 0))
+
+                image_np = (pixel_std * image_np + pixel_mean) * 255 # (H, W, C)
+
+
                 score_np = scores
                 cls_score_np = frcnn_cls_prob.data.cpu().numpy()
                 roi_boxes_np = np.array(roi_boxes)
                 bbox_pred_np = frcnn_bbox_pred.data.cpu().numpy()
 
-                #all_anchors_img = img_get(image_np, all_anchors_boxes, show=True)
-                proposal_img = proposal_img_get(image_np, proposals_boxes, score=score_np, show=False)
+                #all_anchors_img = proposal_img_get(image_np, all_anchors_boxes, score=score_np, show=False)
+                proposal_img = score_img_get(image_np, proposals_boxes, score=score_np, show=False)
+                nreg_img = obj_notreg_img_get(image_np, cls_score_np, roi_boxes_np, show=False)
                 obj_img = obj_img_get(image_np, cls_score_np, bbox_pred_np, roi_boxes_np, args, show=False)
-                gt_img = img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
+                gt_img = label_img_get(image_np, gt_boxes_c[:, :-1], gt_boxes_c[:, -1].astype('int'), show=False)
 
                 fig = plt.figure(figsize=(15, 30)) # width 2700 height 900
                 plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, hspace=0.02)
 
-                for i, img in enumerate([proposal_img, obj_img, gt_img]):
-                    axes = fig.add_subplot(3, 1, 1+i)
+                for i, img in enumerate([proposal_img, nreg_img, obj_img, gt_img]):
+                    axes = fig.add_subplot(4, 1, 1+i)
                     axes.axis('off')
                     axes.imshow(np.asarray(img, dtype='uint8'), aspect='auto')
 
@@ -358,7 +380,7 @@ def train(args):
                 if not os.path.exists(path):
                     os.makedirs(path)
 
-                plt.savefig(path + "/" + str(epoch) + "_" + str(iteration)+ '.png')
+                plt.savefig(path + "/" + str(epoch) + "_" + str(iteration) + '.png')
                 plt.close("all")
                 print("save image")
 

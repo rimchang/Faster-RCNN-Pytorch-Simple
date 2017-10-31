@@ -30,7 +30,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # other parameters
-    parser.add_argument('--model_name', type=str, default="C3",
+    parser.add_argument('--model_name', type=str, default="f1",
                         help='this model_name is used for naming directory name')
     parser.add_argument('--train', type=str2bool, default=True,
                         help='train')
@@ -41,17 +41,20 @@ if __name__ == '__main__':
     parser.add_argument('--use_tensorboard', type=str2bool, default=True,
                         help='using tensorboard logging')
 
-    parser.add_argument('--test_max_per_image', type=int, default=10,
+    parser.add_argument('--test_max_per_image', type=int, default=300,
                         help='max per image for test time')
     parser.add_argument('--test_ob_thresh', type=int, default=0.05,
                         help='class threshhold for test')
     parser.add_argument('--frcnn_nms', type=int, default=0.3,
                         help='frcnn nms thresh for last boxes')
+    parser.add_argument('--backbone', type=str, default="vgg16_longcw", choices=["vgg16_torch","vgg16_longcw"],
+                        help='faster rcnn backbone model')
+
 
 
     # proposal layer args
     proposal_layer = parser.add_argument_group('proposal_layer')
-    proposal_layer.add_argument('--min_size', type=int, default=10,
+    proposal_layer.add_argument('--min_size', type=int, default=5,
                         help='minimum proposal region size')
     proposal_layer.add_argument('--pre_nms_topn', type=float, default=12000,
                         help='proposal region topn filter before nms')
@@ -62,10 +65,12 @@ if __name__ == '__main__':
 
     proposal_layer.add_argument('--test_pre_nms_topn', type=float, default=6000,
                         help='proposal region topn filter before nms')
-    proposal_layer.add_argument('--test_post_nms_topn', type=float, default=300,
+    proposal_layer.add_argument('--test_post_nms_topn', type=float, default=1000,
                         help='proposal region topn filter after nms')
     proposal_layer.add_argument('--test_nms_thresh', type=float, default=0.7,
                         help='IOU nms thresholds')
+    proposal_layer.add_argument('--include_inside_anchor', type=str2bool, default=True,
+                                help='include_inside_achor for proposal layer in training phase')
 
     # rpn_targets args
     rpn_targets = parser.add_argument_group('rpn_targets')
@@ -78,7 +83,7 @@ if __name__ == '__main__':
 
     # frcnn_targets args
     frcnn_targets = parser.add_argument_group('frcnn_targets')
-    frcnn_targets.add_argument('--fg_fraction', type=float, default=0.25,
+    frcnn_targets.add_argument('--fg_fraction', type=float, default=0.3,
                         help='foreground fraction')
     frcnn_targets.add_argument('--fg_threshold', type=float, default=0.5,
                         help='foreground object thresholds')
@@ -86,9 +91,10 @@ if __name__ == '__main__':
                         help='background object thresholds')
     frcnn_targets.add_argument('--include_gt', type=str2bool, default=True,
                         help='include ground truth box in frcnn_targets')
-    frcnn_targets.add_argument('--frcnn_batch_size', type=int, default=256,
+    frcnn_targets.add_argument('--frcnn_batch_size', type=int, default=300,
                         help='mini batch size for frcnn')
-
+    frcnn_targets.add_argument('--target_normalization', type=str2bool, default=True,
+                        help='target_normalization using precomputed mean, std')
 
     training = parser.add_argument_group('training')
     training.add_argument('--lr', type=float, default=0.001,
@@ -103,13 +109,13 @@ if __name__ == '__main__':
                         help='momentum')
     training.add_argument('--weight_decay', type=float, default=0.0005,
                         help='weight decay')
-    training.add_argument('--num_printobj', type=int, default=10,
+    training.add_argument('--num_printobj', type=int, default=200,
                         help='object print number')
-    training.add_argument('--init_gaussian', type=str2bool, default=True,
-                        help='initialize weight with gaussian N(0,0.01)')
-    training.add_argument('--ft_conv3', type=str2bool, default=True,
-                        help='fine tuning after conv3 in vggnet')
 
+    training.add_argument('--bias_double_lr', type=str2bool, default=True,
+                        help='bias learning rate double for better converge')
+    training.add_argument('--bias_weight_decay', type=str2bool, default=False,
+                        help='bias weighy decay')
     # Model Parmeters
     training.add_argument('--n_epochs', type=float, default=4,
                         help='max epochs')
@@ -132,7 +138,7 @@ if __name__ == '__main__':
                         help='for output image path save in output_dir + image_dir')
 
     # step parameter
-    other.add_argument('--pickle_step', type=int, default=4,
+    other.add_argument('--pickle_step', type=int, default=2,
                         help='pickle save at pickle_step epoch')
     other.add_argument('--log_step', type=int, default=20,
                         help='tensorboard log save and print log at log_step epoch')

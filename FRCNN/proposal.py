@@ -62,7 +62,7 @@ class ProposalLayer:
 
         # if test==True, keep anchors inside the image
         # if test==False, delete anchors inside the image
-        if test == False:
+        if args.include_inside_anchor == False and test==False:
             _allowed_border = 0
             inds_inside = np.where(
                 (all_anchors_boxes[:, 0] >= -_allowed_border) &
